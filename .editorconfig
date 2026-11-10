@@ -1,0 +1,6 @@
+﻿[*.{cs,vb}]
+charset = utf-8-bom
+
+# IDE0270: Use coalesce expression
+dotnet_style_coalesce_expression = false
+dotnet_diagnostic.NUnit2005.severity = suggestion

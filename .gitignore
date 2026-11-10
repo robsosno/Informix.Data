@@ -55,3 +55,17 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+*.swp
+.DS_Store
+.vscode
+.idea
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+build/
+.vs/
+*.log
+*.lscache
+

@@ -39,6 +39,22 @@ public class IfxSmartLOBLocator
 /// locator (an existing value) or created new. Wraps the FastPath
 /// <c>ifx_lo_*</c> engine (open/seek/read/write/stat/truncate/close).
 /// </summary>
+/// <remarks>
+/// <para>Three kinds of object, as in Informix.Net.Core:</para>
+/// <list type="bullet">
+/// <item><description><b>Existing</b> -- built from a locator (a reader's
+/// <see cref="IfxDataReader.GetIfxBlob"/>, or the <c>(connection, locator)</c> constructor):
+/// <see cref="Open"/> opens it.</description></item>
+/// <item><description><b>Not yet created</b> -- <see cref="IfxConnection.GetIfxBlob()"/> or the
+/// <c>(connection)</c> / <c>(connection, table, column)</c> constructors: nothing exists on the
+/// server and <see cref="IsNull"/> is true until <see cref="Open"/> creates it. That deferral is
+/// what lets <see cref="SBSpace"/>, <see cref="ExtentSize"/>, <see cref="MaxBytes"/>,
+/// <see cref="EstimatedSize"/>, <see cref="Flags"/> and the table/column take effect: they are
+/// the create spec, and Open sends it.</description></item>
+/// <item><description><b>SQL NULL</b> -- <see cref="IfxBlob.Null"/> / <see cref="IfxClob.Null"/>:
+/// cannot be opened or created.</description></item>
+/// </list>
+/// </remarks>
 public abstract class IfxSmartLOB : INullable
 {
     private protected readonly IfxConnection? Connection;
@@ -47,10 +63,22 @@ public abstract class IfxSmartLOB : INullable
     private protected int Fd = -1;
     private protected long Pos;
 
+    // The create spec (ifx_lo_spec, see SqliLobSpec) the create-time properties read and write.
+    // Built on first use from the server's defaults; after Open() creates the object it holds the
+    // spec the object was actually created with (the column's attributes merged in, if any).
+    private byte[]? _spec;
+
+    // "table.column" whose storage clause (PUT ... IN (...), EXTENT SIZE, LOG ...) the server
+    // folds into the create spec at Open() -- Informix.Net.Core's tableName/colName.
+    private readonly string? _column;
+
     private protected IfxSmartLOB() { }
 
     private protected IfxSmartLOB(IfxConnection connection) =>
         Connection = connection ?? throw new ArgumentNullException(nameof(connection));
+
+    private protected IfxSmartLOB(IfxConnection connection, string? table, string? column) : this(connection) =>
+        _column = QualifiedColumn(table, column);
 
     private protected IfxSmartLOB(IfxConnection connection, IfxSmartLOBLocator locator) : this(connection)
     {
@@ -58,23 +86,99 @@ public abstract class IfxSmartLOB : INullable
         LocatorBytes = locator.ToBytes();
     }
 
+    // The column of an object that already exists cannot change where it was stored; kept so the
+    // (connection, locator, table, column) shape behaves as in Informix.Net.Core, which stores it too.
+    private protected IfxSmartLOB(IfxConnection connection, IfxSmartLOBLocator locator, string? table, string? column)
+        : this(connection, locator) =>
+        _column = QualifiedColumn(table, column);
+
+    // Both or neither: half a column name would otherwise be dropped without a word, and the
+    // object created in the default sbspace instead of the column's.
+    private static string? QualifiedColumn(string? table, string? column)
+    {
+        bool hasTable = !string.IsNullOrEmpty(table), hasColumn = !string.IsNullOrEmpty(column);
+        if (hasTable != hasColumn)
+            throw new ArgumentException(
+                "Give both the table and the column whose storage settings the smart LOB should take, or neither.");
+        return hasTable ? table + "." + column : null;
+    }
+
     private SqliSession Session =>
         Connection?.SqliSession ?? throw new InvalidOperationException("The smart LOB's connection is not open.");
 
-    /// <summary>True for a SQL NULL smart LOB (no locator).</summary>
+    /// <summary>
+    /// True when there is no locator: a SQL NULL, or an object <see cref="Open"/> has not created
+    /// yet (as in Informix.Net.Core, where <c>GetIfxBlob()</c> also returns one with IsNull true).
+    /// </summary>
     public bool IsNull => LocatorBytes is null;
+
+    // Created by Open() on demand: has a connection to create it on, but no locator yet.
+    internal bool IsPendingCreate => LocatorBytes is null && Connection is not null;
 
     /// <summary>True while the smart LOB is open (an fd is held on the server).</summary>
     public bool IsOpen => Fd >= 0;
 
-    // Create-time hints (fed into a future custom LO_CREATE spec; the current create
-    // path uses the server-default sbspace). Kept for surface parity with the
-    // official provider.
-    public long EstimatedSize { get; set; }
-    public int ExtentSize { get; set; }
-    public int Flags { get; set; }
-    public long MaxBytes { get; set; }
-    public string SBSpace { get; set; } = "";
+    // The create spec, for the properties below. The SQL NULL sentinel has none, as in
+    // Informix.Net.Core, whose getters and setters throw InvalidOperationException for it.
+    private byte[] Spec =>
+        Connection is null
+            ? throw new InvalidOperationException("A SQL NULL smart LOB (IfxBlob.Null / IfxClob.Null) has no create spec.")
+            : _spec ??= SqliSession.BuildDefaultLobDescriptor();
+
+    /// <summary>
+    /// Expected size in bytes, a hint for the server's storage allocation; -1 (the default) lets
+    /// the server decide. Part of the create spec: set it before <see cref="Open"/> creates the
+    /// object. Afterwards it reports the value the object was created with.
+    /// </summary>
+    public long EstimatedSize
+    {
+        get => SqliLobSpec.GetEstimatedBytes(Spec);
+        set => SqliLobSpec.SetEstimatedBytes(Spec, value);
+    }
+
+    /// <summary>
+    /// Allocation extent in kilobytes; -1 (the default) uses the column's or the sbspace's own.
+    /// Part of the create spec, like <see cref="EstimatedSize"/>.
+    /// </summary>
+    public int ExtentSize
+    {
+        get => SqliLobSpec.GetExtentSize(Spec);
+        set => SqliLobSpec.SetExtentSize(Spec, value);
+    }
+
+    /// <summary>
+    /// Create-time flags, an <see cref="IfxSmartLOBCreateTimeFlags"/> combination (logging and
+    /// last-access-time keeping); 0 (the default) takes the sbspace's settings. Part of the
+    /// create spec, like <see cref="EstimatedSize"/>.
+    /// </summary>
+    public int Flags
+    {
+        get => SqliLobSpec.GetFlags(Spec);
+        set => SqliLobSpec.SetFlags(Spec, value);
+    }
+
+    /// <summary>
+    /// Upper bound on the object's size in bytes; -1 (the default) means no limit beyond the
+    /// sbspace's. Part of the create spec, like <see cref="EstimatedSize"/>.
+    /// </summary>
+    public long MaxBytes
+    {
+        get => SqliLobSpec.GetMaxBytes(Spec);
+        set => SqliLobSpec.SetMaxBytes(Spec, value);
+    }
+
+    /// <summary>
+    /// The sbspace to create the object in; empty (the default) means the server's
+    /// <c>SBSPACENAME</c>. Part of the create spec, like <see cref="EstimatedSize"/>; a name the
+    /// server does not know fails <see cref="Open"/>. A table/column given to the constructor (or
+    /// to <see cref="IfxConnection.GetIfxBlob(string, string)"/>) is applied on top of this, so the
+    /// column's own <c>PUT ... IN (...)</c> wins.
+    /// </summary>
+    public string SBSpace
+    {
+        get => SqliLobSpec.GetSbspace(Spec);
+        set => SqliLobSpec.SetSbspace(Spec, value);
+    }
 
     /// <summary>The reference count (not tracked client-side; always throws).</summary>
     public int ReferenceCount => throw new NotSupportedException("ReferenceCount is not available from the client.");
@@ -93,21 +197,39 @@ public abstract class IfxSmartLOB : INullable
         set { Session.LobSeekTo(RequireOpen(), value, (int)IfxSmartLOBWhence.Begin); Pos = value; }
     }
 
-    /// <summary>Opens the smart LOB for access.</summary>
+    /// <summary>
+    /// Opens the smart LOB for access -- and, for an object that does not exist yet (from
+    /// <see cref="IfxConnection.GetIfxBlob()"/> or the creating constructors), first creates it
+    /// on the server from the create spec: <see cref="SBSpace"/>, <see cref="ExtentSize"/>,
+    /// <see cref="MaxBytes"/>, <see cref="EstimatedSize"/>, <see cref="Flags"/>, then the
+    /// table/column's storage settings on top. Opening an object that is already open does nothing.
+    /// </summary>
     public void Open(IfxSmartLOBOpenMode mode)
     {
         if (LocatorBytes is null)
-            throw new InvalidOperationException("Cannot open a NULL smart LOB.");
+        {
+            if (Connection is null)
+                throw new InvalidOperationException("Cannot open a NULL smart LOB.");
+            Create(mode);
+            return;
+        }
         if (IsOpen)
             return;
         Fd = Session.LobOpen(LocatorBytes, (int)mode);
         Pos = 0;
     }
 
-    // Creates a new empty smart LOB (used by IfxConnection.GetIfxBlob/GetIfxClob).
-    internal void CreateNew()
+    // ifx_lo_create with this object's spec; the server leaves the new object open in `mode`.
+    // A table/column is resolved last, with the spec as the template, which is the order
+    // Informix.Net.Core's CreateSmartLOB uses (GetDefaultLOSpec, then GetColumnSpecificLOSpec).
+    private void Create(IfxSmartLOBOpenMode mode)
     {
-        (int fd, byte[] locator) = Session.LobCreate();
+        SqliSession session = Session;
+        byte[] spec = (byte[])Spec.Clone();
+        if (_column is not null)
+            spec = session.ResolveColumnLobSpec(_column, spec);
+        (int fd, byte[] locator) = session.LobCreate(spec, (int)mode);
+        _spec = spec;
         Fd = fd;
         LocatorBytes = locator;
         Pos = 0;
@@ -146,8 +268,23 @@ public abstract class IfxSmartLOB : INullable
 
     /// <summary>The locator of this smart LOB.</summary>
     public IfxSmartLOBLocator GetLocator() =>
-        LocatorBytes is null ? throw new InvalidOperationException("A NULL smart LOB has no locator.")
-                             : new IfxSmartLOBLocator(LocatorBytes);
+        LocatorBytes is not null ? new IfxSmartLOBLocator(LocatorBytes)
+        : IsPendingCreate ? throw new InvalidOperationException(NotCreatedYet)
+        : throw new InvalidOperationException("A NULL smart LOB has no locator.");
+
+    internal const string NotCreatedYet =
+        "This smart LOB has not been created yet: Open() creates it on the server "
+        + "(GetIfxBlob()/GetIfxClob() and the (connection) and (connection, table, column) constructors only prepare it).";
+
+    // What IfxParameterBinder binds for a smart LOB passed as a parameter value: the raw
+    // locator, or null for a NULL object (which binds a typed SQL NULL). Unlike GetLocator()
+    // this does not throw for a NULL object and does not copy, since the binder only reads it.
+    internal byte[]? LocatorForBind => LocatorBytes;
+
+    // Which Informix opaque type the locator belongs to, for the SENDRECV bind's extended
+    // type name ("clob"/"blob"). Set by the concrete class, not guessed from the locator:
+    // the 72-byte ifx_lo_t does not say which it is.
+    internal abstract bool IsClobObject { get; }
 
     // Shared raw byte read/write (IfxBlob uses directly; IfxClob transcodes chars).
     private protected byte[] ReadRaw(int count)
@@ -282,7 +419,10 @@ public abstract class IfxSmartLOB : INullable
         return stream;
     }
 
-    private int RequireOpen() => IsOpen ? Fd : throw new InvalidOperationException("The smart LOB is not open.");
+    private int RequireOpen() =>
+        IsOpen ? Fd
+        : IsPendingCreate ? throw new InvalidOperationException(NotCreatedYet)
+        : throw new InvalidOperationException("The smart LOB is not open.");
 }
 
 /// <summary>An Informix BLOB (binary smart large object).</summary>
@@ -293,18 +433,30 @@ public sealed class IfxBlob : IfxSmartLOB
 
     private IfxBlob() { }
 
+    internal override bool IsClobObject => false;
+
     public IfxBlob(IfxConnection connection) : base(connection) { }
 
     public IfxBlob(IfxConnection connection, IfxSmartLOBLocator locator) : base(connection, locator) { }
 
-    /// <param name="table">Reserved for future use (not currently used).</param>
-    /// <param name="column">Reserved for future use (not currently used).</param>
-    public IfxBlob(IfxConnection connection, string table, string column) : base(connection) { }
+    /// <summary>
+    /// A new object to be created by <see cref="IfxSmartLOB.Open"/> with the storage settings of
+    /// <paramref name="table"/>.<paramref name="column"/> (its sbspace and other column-level
+    /// attributes, which the server looks up at that point).
+    /// </summary>
+    /// <param name="connection">The connection to create the object on.</param>
+    /// <param name="table">The table holding the column; give both or neither.</param>
+    /// <param name="column">The CLOB/BLOB column whose storage clause the new object should follow.</param>
+    public IfxBlob(IfxConnection connection, string table, string column) : base(connection, table, column) { }
 
-    /// <param name="table">Reserved for future use (not currently used).</param>
-    /// <param name="column">Reserved for future use (not currently used).</param>
+    /// <summary>An existing object, by its locator; the table and column are recorded but cannot
+    /// change where an object that already exists is stored.</summary>
+    /// <param name="connection">The connection the object is read and written through.</param>
+    /// <param name="locator">The existing object's locator.</param>
+    /// <param name="table">The table holding the column; give both or neither.</param>
+    /// <param name="column">The CLOB/BLOB column the object belongs to.</param>
     public IfxBlob(IfxConnection connection, IfxSmartLOBLocator locator, string table, string column)
-        : base(connection, locator) { }
+        : base(connection, locator, table, column) { }
 
     /// <summary>Reads up to <c>buff.Length</c> bytes from the current position.</summary>
     public long Read(byte[] buff)
@@ -352,18 +504,30 @@ public sealed class IfxClob : IfxSmartLOB
 
     private IfxClob() { }
 
+    internal override bool IsClobObject => true;
+
     public IfxClob(IfxConnection connection) : base(connection) { }
 
     public IfxClob(IfxConnection connection, IfxSmartLOBLocator locator) : base(connection, locator) { }
 
-    /// <param name="table">Reserved for future use (not currently used).</param>
-    /// <param name="column">Reserved for future use (not currently used).</param>
-    public IfxClob(IfxConnection connection, string table, string column) : base(connection) { }
+    /// <summary>
+    /// A new object to be created by <see cref="IfxSmartLOB.Open"/> with the storage settings of
+    /// <paramref name="table"/>.<paramref name="column"/> (its sbspace and other column-level
+    /// attributes, which the server looks up at that point).
+    /// </summary>
+    /// <param name="connection">The connection to create the object on.</param>
+    /// <param name="table">The table holding the column; give both or neither.</param>
+    /// <param name="column">The CLOB/BLOB column whose storage clause the new object should follow.</param>
+    public IfxClob(IfxConnection connection, string table, string column) : base(connection, table, column) { }
 
-    /// <param name="table">Reserved for future use (not currently used).</param>
-    /// <param name="column">Reserved for future use (not currently used).</param>
+    /// <summary>An existing object, by its locator; the table and column are recorded but cannot
+    /// change where an object that already exists is stored.</summary>
+    /// <param name="connection">The connection the object is read and written through.</param>
+    /// <param name="locator">The existing object's locator.</param>
+    /// <param name="table">The table holding the column; give both or neither.</param>
+    /// <param name="column">The CLOB/BLOB column the object belongs to.</param>
     public IfxClob(IfxConnection connection, IfxSmartLOBLocator locator, string table, string column)
-        : base(connection, locator) { }
+        : base(connection, locator, table, column) { }
 
     /// <summary>Reads characters from the current position into <paramref name="buff"/>.</summary>
     /// <remarks>

@@ -123,6 +123,14 @@ internal static class IfxParameterBinder
     // on this session — and its 72-byte locator is what actually binds.
     internal static SqliBindValue EncodeBind(SqliSession session, IfxParameter p)
     {
+        // An already-created smart large object (IfxConnection.GetIfxBlob/GetIfxClob, a
+        // reader's GetIfxBlob, or a locator kept from an earlier row): bind the locator the
+        // caller hands over -- do NOT create a second object. IfxType.SmartLOBLocator says
+        // "the value IS a locator" and is the only type that also accepts bare locator bytes.
+        if (p.IfxType is IfxType.Clob or IfxType.Blob or IfxType.SmartLOBLocator
+            && TryEncodeExistingLocator(p, out SqliBindValue existing))
+            return existing;
+
         if (p.IfxType is IfxType.Clob or IfxType.Blob)
         {
             bool isClob = p.IfxType == IfxType.Clob;
@@ -132,17 +140,105 @@ internal static class IfxParameterBinder
                 string s => Wire.IfxWireConverter.EncodeChar(s, session.DbEncoding),
                 byte[] b => b,
                 _ => throw new NotSupportedException(
-                    $"A {p.IfxType} parameter must be a string or byte[], not {p.Value.GetType()}."),
+                    $"A {p.IfxType} parameter must be a string, a byte[], an IfxBlob/IfxClob or an "
+                    + $"IfxSmartLOBLocator, not {p.Value.GetType()}."),
             };
             byte[]? locator = payload is null ? null : session.CreateSmartBlob(payload, p.SmartLobColumn);
             return SqliBindValue.SmartBlobLocator(locator, isClob);
         }
+        if (p.IfxType is IfxType.SmartLOBLocator)
+            throw new NotSupportedException(
+                "An IfxType.SmartLOBLocator parameter must be an IfxBlob/IfxClob, an IfxSmartLOBLocator, "
+                + $"the 72 raw locator bytes, or that locator's hex text, not {p.Value?.GetType().ToString() ?? "null"}.");
         if (p.IfxType is IfxType.Json or IfxType.Bson)
             return EncodeJsonOrBsonBind(p);
         if (p.IfxType is IfxType.BinaryVar or IfxType.Binary18)
             return EncodeBinaryBind(p);
         return SqliBindValue.From(
             p.Value, session.DbEncoding, IfxTypeMap.ToWire(p.IfxType), session.Capabilities.IsLongRowId);
+    }
+
+    // The 72-byte ifx_lo_t. Only used to reject an obviously wrong value early -- a bind of the
+    // wrong length would otherwise reach the server as a malformed opaque value.
+    private const int SmartLobLocatorSize = 72;
+
+    /// <summary>
+    /// Binds a smart large object the caller already created, rather than creating a new one
+    /// from a payload. Returns false when the value is not one of the locator-carrying shapes,
+    /// which leaves the ordinary Clob/Blob "create from string/byte[]" path in charge.
+    /// </summary>
+    /// <remarks>
+    /// <para>The <c>blob</c>/<c>clob</c> half of the SENDRECV bind cannot be read off the
+    /// 72-byte <c>ifx_lo_t</c>, and the server will NOT cast one to the other: live-verified
+    /// against IDS 14.10, a locator bound as <c>blob</c> into a CLOB column fails with
+    /// SQLCODE -9634 "blob to clob", and the mirror case with "clob to blob". So the name has
+    /// to be right, and it comes from the object (<see cref="IfxBlob"/> vs
+    /// <see cref="IfxClob"/>) or, for an <see cref="IfxSmartLOBLocator"/>, from
+    /// <see cref="IfxParameter.IfxType"/>.</para>
+    /// <para>A bare <c>byte[]</c> or hex string carries neither, so it binds as <c>blob</c> --
+    /// right for a BLOB column, and loudly rejected with -9634 rather than silently wrong for
+    /// a CLOB one. For a CLOB, wrap it: <c>new IfxSmartLOBLocator(bytes)</c> with
+    /// <c>IfxType.Clob</c>, or pass the <see cref="IfxClob"/> itself.</para>
+    /// <para>Note the deliberate asymmetry under <c>IfxType.Clob</c>/<c>Blob</c>: there a
+    /// <c>byte[]</c>/<c>string</c> is still the object's <i>content</i> (a new LOB is created
+    /// from it), as it always was. Only <see cref="IfxSmartLOBLocator"/>,
+    /// <see cref="IfxSmartLOB"/> and <c>IfxType.SmartLOBLocator</c> mean "this IS a locator",
+    /// so passing raw locator bytes under <c>IfxType.Blob</c> stores those 72 bytes as data.
+    /// </para>
+    /// </remarks>
+    private static bool TryEncodeExistingLocator(IfxParameter p, out SqliBindValue bind)
+    {
+        bind = default!;
+        bool typeSaysClob = p.IfxType == IfxType.Clob;
+        switch (p.Value)
+        {
+            // An object Open() has not created yet has nothing to point at. Binding it as NULL
+            // would quietly store NULL where the caller meant a value, so say what is missing.
+            case IfxSmartLOB { IsPendingCreate: true }:
+                throw new InvalidOperationException(IfxSmartLOB.NotCreatedYet);
+
+            // IfxBlob.Null / IfxClob.Null: a typed NULL.
+            case IfxSmartLOB lob:
+                bind = SqliBindValue.SmartBlobLocator(Checked(lob.LocatorForBind), lob.IsClobObject);
+                return true;
+
+            case IfxSmartLOBLocator locator:
+                bind = SqliBindValue.SmartBlobLocator(Checked(locator.ToBytes()), typeSaysClob);
+                return true;
+
+            // Bare locator bytes / the hex text GetLocator().ToString() produces. Accepted only
+            // under IfxType.SmartLOBLocator, where a byte[] or string cannot mean "the content"
+            // the way it does for IfxType.Clob/Blob.
+            case byte[] raw when p.IfxType == IfxType.SmartLOBLocator:
+                bind = SqliBindValue.SmartBlobLocator(Checked(raw), isClob: false);
+                return true;
+
+            case string hex when p.IfxType == IfxType.SmartLOBLocator:
+                bind = SqliBindValue.SmartBlobLocator(Checked(ParseHexLocator(hex)), isClob: false);
+                return true;
+
+            default:
+                return false;
+        }
+
+        static byte[]? Checked(byte[]? locator) =>
+            locator is null || locator.Length == SmartLobLocatorSize ? locator
+                : throw new ArgumentException(
+                    $"A smart-large-object locator is {SmartLobLocatorSize} bytes; got {locator.Length}.");
+    }
+
+    private static byte[] ParseHexLocator(string hex)
+    {
+        try
+        {
+            return new IfxSmartLOBLocator(hex).ToBytes();
+        }
+        catch (FormatException e)
+        {
+            throw new ArgumentException(
+                "An IfxType.SmartLOBLocator string parameter must be the locator's hex text "
+                + "(IfxSmartLOBLocator.ToString()).", nameof(hex), e);
+        }
     }
 
     // BINARYVAR / BINARY18 (Database Extensions part 3) are opaque UDTs, bound exactly like JSON/BSON:

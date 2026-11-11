@@ -971,37 +971,27 @@ public sealed class IfxConnection : DbConnection, ICloneable
     /// <summary>Empties every connection pool in the process (ADO.NET alias of <see cref="ClearAllPools"/>).</summary>
     public void ReleaseObjectPool() => ClearAllPools();
 
-    /// <summary>Creates a new, empty BLOB smart large object in the server's default sbspace.</summary>
-    public IfxBlob GetIfxBlob()
-    {
-        var blob = new IfxBlob(this);
-        blob.CreateNew();
-        return blob;
-    }
+    /// <summary>
+    /// Prepares a new BLOB smart large object. Nothing is created on the server yet:
+    /// <see cref="IfxSmartLOB.Open"/> creates it, using whatever create-time properties
+    /// (<see cref="IfxSmartLOB.SBSpace"/>, <see cref="IfxSmartLOB.ExtentSize"/>, ...) were set
+    /// in between -- the same lifecycle as Informix.Net.Core. Bind the opened object (or its
+    /// <see cref="IfxSmartLOB.GetLocator"/>) into an INSERT/UPDATE to store it.
+    /// </summary>
+    public IfxBlob GetIfxBlob() => new(this);
 
-    /// <summary>Creates a new, empty BLOB (the table/column name is reserved for a future create-spec lookup).</summary>
-    public IfxBlob GetIfxBlob(string tabname, string colname)
-    {
-        var blob = new IfxBlob(this, tabname, colname);
-        blob.CreateNew();
-        return blob;
-    }
+    /// <summary>
+    /// Prepares a new BLOB that <see cref="IfxSmartLOB.Open"/> creates with the storage settings of
+    /// <paramref name="tabname"/>.<paramref name="colname"/> -- its sbspace from
+    /// <c>PUT ... IN (...)</c> and its other column-level attributes.
+    /// </summary>
+    public IfxBlob GetIfxBlob(string tabname, string colname) => new(this, tabname, colname);
 
-    /// <summary>Creates a new, empty CLOB smart large object in the server's default sbspace.</summary>
-    public IfxClob GetIfxClob()
-    {
-        var clob = new IfxClob(this);
-        clob.CreateNew();
-        return clob;
-    }
+    /// <summary>Prepares a new CLOB; see <see cref="GetIfxBlob()"/>.</summary>
+    public IfxClob GetIfxClob() => new(this);
 
-    /// <summary>Creates a new, empty CLOB (the table/column name is reserved for a future create-spec lookup).</summary>
-    public IfxClob GetIfxClob(string tabname, string colname)
-    {
-        var clob = new IfxClob(this, tabname, colname);
-        clob.CreateNew();
-        return clob;
-    }
+    /// <summary>Prepares a new CLOB with a column's storage settings; see <see cref="GetIfxBlob(string, string)"/>.</summary>
+    public IfxClob GetIfxClob(string tabname, string colname) => new(this, tabname, colname);
 
     // Required: Database, and either a Server (resolved through sqlhosts) or Host plus a Service/port.
     private void ValidateSettings()

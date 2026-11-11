@@ -1886,7 +1886,6 @@ internal sealed class SqliSession
 
     internal const int LoLocatorSize = 72;   // sizeof(ifx_lo_t) on a long-ID server
     private const int LoStatSize = 644;      // IfxSmartBlob.LO_STAT_SIZE (isLongID)
-    private const int LoSpecSize = 596;      // IfxLobDescriptor.LO_DESCRIPTOR_SIZE
     private const int LoRdOnly = 4;          // IfxSmartBlob.LO_RDONLY
     private const int LoRdWr = 8;            // IfxSmartBlob.LO_RDWR
     private const short LoSeekSet = 0;       // IfxSmartBlob.LO_SEEK_SET
@@ -2182,16 +2181,16 @@ internal sealed class SqliSession
         return locator;
     }
 
-    // The create-time spec for a LOB that is going into "table.column": the default spec with the
-    // column's own storage attributes filled in by the server (ifx_lo_col_sbinfo) - its sbspace
-    // from PUT ... IN (...), and the rest of the column-level settings. Live-verified: the same
-    // INSERT lands the LOB in the default sbspace with the default spec and in the column's
-    // sbspace with this one.
-    private byte[] ResolveColumnLobSpec(string column)
+    // The create-time spec for a LOB that is going into "table.column": the template spec (the
+    // default one, unless the caller already set attributes on it) with the column's own storage
+    // attributes filled in by the server (ifx_lo_col_sbinfo) - its sbspace from PUT ... IN (...),
+    // and the rest of the column-level settings. Live-verified: the same INSERT lands the LOB in
+    // the default sbspace with the default spec and in the column's sbspace with this one.
+    internal byte[] ResolveColumnLobSpec(string column, byte[]? template = null)
     {
         var resolved = ExecuteFastPath(LoColSbinfoSignature,
             SqliBindValue.LVarCharArgument(column, _out.DbEncoding),
-            SqliBindValue.Udt("ifx_lo_spec", BuildDefaultLobDescriptor()));
+            SqliBindValue.Udt("ifx_lo_spec", template ?? BuildDefaultLobDescriptor()));
         return resolved.Count > 0 && resolved[0] is byte[] spec
             ? spec
             : throw new IfxException($"ifx_lo_col_sbinfo returned no spec for '{column}' (-408).", -408);
@@ -2208,12 +2207,16 @@ internal sealed class SqliSession
         return Convert.ToInt32(opened[0]);
     }
 
-    /// <summary>Creates a new empty smart LOB; returns its file descriptor and 72-byte locator.</summary>
-    internal (int Fd, byte[] Locator) LobCreate()
+    /// <summary>
+    /// Creates a new empty smart LOB from <paramref name="spec"/> (a 596-byte
+    /// <c>ifx_lo_spec</c>, see <see cref="SqliLobSpec"/>) and leaves it open in
+    /// <paramref name="mode"/>; returns its file descriptor and 72-byte locator.
+    /// </summary>
+    internal (int Fd, byte[] Locator) LobCreate(byte[] spec, int mode)
     {
         var created = ExecuteFastPath(LoCreateSignature,
-            SqliBindValue.Udt("ifx_lo_spec", BuildDefaultLobDescriptor()),
-            SqliBindValue.From(LoRdWr, _out.DbEncoding),
+            SqliBindValue.Udt("ifx_lo_spec", spec),
+            SqliBindValue.From(mode == 0 ? LoRdWr : mode, _out.DbEncoding),
             SqliBindValue.Udt("blob", new byte[LoLocatorSize]));
         byte[] locator = created[0] as byte[]
             ?? throw new IfxException("ifx_lo_create did not return a locator (-408).", -408);
@@ -2221,14 +2224,20 @@ internal sealed class SqliSession
     }
 
     /// <summary>The size in bytes of the open smart LOB (from IFX_LO_STAT).</summary>
-    internal long LobSize(int fd)
+    internal long LobSize(int fd) => ReadUdtLong(LobStat(fd).AsSpan(4));
+
+    /// <summary>
+    /// The raw IFX_LO_STAT block of the open smart LOB (JDBC <c>IfxLoStat</c>, 644 bytes on a
+    /// long-ID server): size, times, reference count, and the create spec the server actually
+    /// used, as a full <c>ifx_lo_spec</c> at its tail.
+    /// </summary>
+    internal byte[] LobStat(int fd)
     {
         var stat = ExecuteFastPath(LoStatSignature,
             SqliBindValue.From(fd, _out.DbEncoding),
             SqliBindValue.Udt("ifx_lo_stat", new byte[LoStatSize]));
-        byte[] statBytes = stat[0] as byte[]
+        return stat[0] as byte[]
             ?? throw new IfxException("ifx_lo_stat did not return a stat block (-408).", -408);
-        return ReadUdtLong(statBytes.AsSpan(4));
     }
 
     /// <summary>Positions the server cursor of the open smart LOB (IFX_LO_SEEK).</summary>
@@ -2345,7 +2354,7 @@ internal sealed class SqliSession
     /// </summary>
     internal static byte[] BuildDefaultLobDescriptor()
     {
-        var b = new byte[LoSpecSize];
+        var b = new byte[SqliLobSpec.Size];
         IfxWireConverter.WriteInt32(b.AsSpan(0, 4), unchecked((int)0xDADAFEED)); // MagicNumber
         WriteUdtLong(b.AsSpan(12), -1);           // estimatedNoBytes (+ pad short at 22)
         WriteUdtLong(b.AsSpan(24), -1);           // sizeLimit (+ pad short at 34)
@@ -2360,7 +2369,7 @@ internal sealed class SqliSession
     // IfxUDTOutput.writeLong / IfxUDTInput.readLong: a long inside an opaque UDT
     // travels as [|v| low word:int32][|v| high word:int32][sign:int16] where the
     // sign is 1/-1 and 0 marks null.
-    private static void WriteUdtLong(Span<byte> target, long value)
+    internal static void WriteUdtLong(Span<byte> target, long value)
     {
         ulong magnitude = value < 0 ? (ulong)(-value) : (ulong)value;
         IfxWireConverter.WriteInt32(target[..4], unchecked((int)(magnitude & 0xFFFFFFFF)));
@@ -2370,7 +2379,7 @@ internal sealed class SqliSession
         target[9] = (byte)sign;
     }
 
-    private static long ReadUdtLong(ReadOnlySpan<byte> source)
+    internal static long ReadUdtLong(ReadOnlySpan<byte> source)
     {
         uint low = (uint)IfxWireConverter.ReadInt32(source[..4]);
         uint high = (uint)IfxWireConverter.ReadInt32(source.Slice(4, 4));

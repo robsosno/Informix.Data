@@ -681,6 +681,120 @@ Round-trip counts for both: [msg_flow.md](msg_flow.md) §3 and §4.
 
 ---
 
+### 4.18 Smart large objects as first-class handles — `IfxSmartLOB` and `IfxType.SmartLOBLocator`
+
+Besides the "bind the whole value" route of §4.13, the classic provider's incremental
+smart-LOB API is here in full, with the same shapes: `IfxBlob`/`IfxClob` (both
+`IfxSmartLOB`), `IfxSmartLOBLocator`, and the create/open factories on both the connection
+and the reader. Use it when a value is too big to hold in memory, or when you want to read
+or patch part of one.
+
+**Opening an existing object** — from a row, by its locator:
+
+```csharp
+using var r = cmd.ExecuteReader();   // SELECT advert.picture FROM catalog WHERE …
+r.Read();
+IfxBlob blob = r.GetIfxBlob(0);      // also GetFieldValue<IfxBlob>(0); GetIfxClob for a CLOB
+blob.Open(IfxSmartLOBOpenMode.ReadWrite);
+blob.Seek(0, IfxSmartLOBWhence.Begin);
+foreach (byte[] piece in pieces) blob.Write(piece);
+blob.Truncate(blob.Position);
+blob.Close();
+```
+
+**Creating a new object** — the classic lifecycle: the connection hands out a handle, and
+`Open()` is what creates the object on the server:
+
+```csharp
+IfxBlob blob = cn.GetIfxBlob();            // nothing on the server yet: IsNull is true
+blob.SBSpace = "sbspace2";                 // optional create spec, see below
+blob.Open(IfxSmartLOBOpenMode.ReadWrite);  // ifx_lo_create; the new object is left open
+foreach (byte[] piece in pieces)
+    blob.Write(piece);                     // or blob.FromFile(path, false, IfxSmartLOBFileLocation.Client),
+blob.Close();                              //    which opens -- and so creates -- the object itself
+
+cmd.CommandText = "INSERT INTO docs (id, body) VALUES (?, ?)";
+cmd.Parameters.Add(new IfxParameter("id", 1));
+cmd.Parameters.Add(new IfxParameter("body", blob) { IfxType = IfxType.Blob });
+cmd.ExecuteNonQuery();                     // binds the 72-byte locator, creates nothing
+```
+
+Writing to the handle before `Open()`, asking it for `GetLocator()`, or binding it as a
+parameter fails with an `InvalidOperationException` that says `Open()` creates it. Binding
+in particular is refused rather than quietly storing NULL.
+
+The parameter value may be the `IfxBlob`/`IfxClob` itself, its `GetLocator()`, an
+`IfxSmartLOBLocator` you built from saved bytes, the 72 raw bytes, or the hex text
+`IfxSmartLOBLocator.ToString()` produces. All five bind the locator rather than creating a
+second object, and the same locator may go into several rows or an `UPDATE`.
+
+**`IfxType.SmartLOBLocator`** is the type that says "this value *is* a locator". It matters
+because of a deliberate asymmetry: under `IfxType.Clob`/`Blob` a `string` or `byte[]` is
+still the new object's **content** (§4.13), exactly as before, so handing raw locator bytes
+to `IfxType.Blob` stores those 72 bytes as data. Pass an `IfxSmartLOBLocator` (or the
+`IfxBlob`/`IfxClob`) and the meaning is never in doubt.
+
+> **The `blob`/`clob` name has to match the column.** The locator is bound as an opaque UDT
+> whose extended type name is `blob` or `clob`, and the server will not cast one to the
+> other: live-verified, a locator sent as `blob` into a CLOB column fails with
+> **SQLCODE -9634 "blob to clob"**, and the mirror case with "clob to blob". The name comes
+> from the object when you pass an `IfxBlob`/`IfxClob` (which always knows), and from
+> `IfxParameter.IfxType` otherwise. A bare `byte[]` or hex string under
+> `IfxType.SmartLOBLocator` has neither, so it binds as `blob` — for a CLOB, wrap it:
+> `new IfxSmartLOBLocator(bytes)` with `IfxType.Clob`.
+
+**The create spec.** Whatever is set between `GetIfxBlob()` and `Open()` is the spec
+`ifx_lo_create` receives:
+
+| Property | Means | Default |
+|---|---|---|
+| `SBSpace` | the sbspace to create the object in | empty: the server's `SBSPACENAME` |
+| `ExtentSize` | allocation extent, in KB | -1: the column's or the sbspace's own |
+| `MaxBytes` | upper bound on the object's size | -1: none beyond the sbspace's |
+| `EstimatedSize` | expected size, an allocation hint | -1: the server decides |
+| `Flags` | `IfxSmartLOBCreateTimeFlags`: `Log`/`NoLog`, `KeepAccessTime`/`DontKeepAccessTime` | 0: the sbspace's own settings |
+
+Live-verified by reading back the spec the server reports for the new object through
+`ifx_lo_stat`: the sbspace, `ExtentSize`, `EstimatedSize` and `MaxBytes` come back as set,
+and `Log | KeepAccessTime` turns around the sbspace's default of no logging and no
+access-time keeping. An sbspace the server does not know fails `Open()` with SQLCODE -9810.
+
+> **`MaxBytes` is enforced by truncation, not by an error.** With a limit of 10 000 bytes, a
+> 20 000-byte `Write` stores 10 000 and *returns* 10 000; nothing is thrown. Check what
+> `Write` returns when you set a limit.
+
+**A column's storage settings** — `cn.GetIfxBlob("docs", "body")` or
+`new IfxBlob(cn, "docs", "body")` — make `Open()` first ask the server for `docs.body`'s
+create spec (`ifx_lo_col_sbinfo`, the same lookup `IfxParameter.SmartLobColumn` does in
+§4.14), with the properties above as the template the column's own clause is folded into.
+Verified on a column declared `PUT b IN (sbspace) (EXTENT SIZE 48, KEEP ACCESS TIME)`: the
+object is created with extent 48 and access-time keeping, where a plain `GetIfxBlob()` gets
+the defaults. Give both names or neither; half a column name is an `ArgumentException`.
+
+After `Open()` the properties report the spec the object was actually created with, column
+settings included; changing them then has no effect on it. On an object opened *by its
+locator* (a reader's `GetIfxBlob`) they report the defaults, not that object's real settings.
+
+> **Measured against `Informix.Net.Core` 4.0.2.0.** The lifecycle above is the classic one:
+> its `GetIfxBlob()` also returns a handle with `IsNull` true, `Write()` before `Open()` also
+> fails, and `Open()` is also what calls its internal `CreateSmartLOB`, which applies the
+> table/column through a `"table.column"` column-spec lookup and the properties through the
+> native create spec. What still differs:
+>
+> | | classic `Informix.Net.Core` | here |
+> |---|---|---|
+> | parameter value | `IfxSmartLOBLocator` only — its marshaller casts to it and calls `ToBytes()`; nothing converts an `IfxBlob` to its locator, and `locator.ToBytes()` is stored as content | `IfxSmartLOBLocator` as well, plus the object, the raw bytes and the hex text |
+> | `ReferenceCount`, `LastAccessTime`, `LastChangeTime`, `LastModificationTime` | read from the server's LOB status block | throw `NotSupportedException`, although the server reports them in the same `ifx_lo_stat` block used above |
+> | `IfxSmartLOBLocator.Length` | `static` (the fixed 72) | an instance property |
+>
+> Code written against the classic provider ports unchanged.
+
+A LOB created by `Open()` but never bound into a row stays in the sbspace with nothing
+referencing it, the orphan §4.13 describes; inside a transaction that is rolled back it goes
+away with it.
+
+---
+
 ## 5. Quick reference — old knob → new home
 
 | What you did before | Now |
@@ -708,6 +822,7 @@ Round-trip counts for both: [msg_flow.md](msg_flow.md) §3 and §4.
 | `SQLProcedureColumns` | `GetSchema("ProcedureColumns")` — `COLUMN_TYPE` straight from `sysproccolumns.paramattr` (IN/OUT/INOUT/`RETURNING` rows, ODBC's own codes); see §4.10 |
 | `{? = call proc(?,?)}` with `SQLBindParameter(SQL_PARAM_OUTPUT)` | same escape, or `CommandType.StoredProcedure` + `ParameterDirection.Output`/`InputOutput`/`ReturnValue`; read the values after `ExecuteNonQuery`; see §4.11 |
 | `IfxConnection.Driver` / `.PacketSize` (ODBC-native provider) | **not implemented** — `Driver` names a native DLL we don't have; `PacketSize` was always just an alias of `FetchBufferSize` — use the `Fetch Buffer Size` key / `IfxCommand.FetchBufferSize`; see §4.10 |
+| `IfxConnection.GetIfxBlob()`/`GetIfxClob()` + `IfxSmartLOB` + `IfxType.SmartLOBLocator` | all present, same lifecycle — the create-spec properties and an optional table/column, then `Open()` creates; fill incrementally and bind the object or its `GetLocator()`; see §4.18 |
 | `SQLColAttribute(SQL_DESC_BASE_TABLE_NAME)` (`IfxDataReader.GetBaseTableName` on the ODBC-native provider) | **no `GetBaseTableName`** — the table name is not on the SQLI wire. `GetSchemaTable()` of a `SchemaOnly`/`KeyInfo` reader has `BaseTableName` for a one-table SELECT, read from the statement text; see §4.15 |
 
 ---
@@ -720,7 +835,9 @@ So you don't go looking: no **DRDA/XA *distributed* transactions** — single-co
 promotion and throws. No **HDR detection**, no privilege/UDT-catalog **metadata collections**
 (query `sysusers`/`systabauth`/`sysxtdtypes` yourself). No **`IfxDataReader.GetBaseTableName`**
 (the schema table has `BaseTableName` for a one-table SELECT, §4.15)
-and no **`IfxConnection.Driver`/`.PacketSize`** . Core connectivity is all implemented:
+and no **`IfxConnection.Driver`/`.PacketSize`** .
+
+Core connectivity is all implemented:
 execute/fetch, scroll & hold cursors, BYTE/TEXT & smart LOBs, stored procedures, savepoints,
 isolation levels, batches, bulk load, and `GetSchema` with the collections `Tables`, `Views`,
 `Columns`, `Indexes`, `Procedures`, `ProcedureParameters`, `ProcedureColumns`, `PrimaryKeys`,

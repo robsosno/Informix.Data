@@ -771,9 +771,14 @@ Verified on a column declared `PUT b IN (sbspace) (EXTENT SIZE 48, KEEP ACCESS T
 object is created with extent 48 and access-time keeping, where a plain `GetIfxBlob()` gets
 the defaults. Give both names or neither; half a column name is an `ArgumentException`.
 
-After `Open()` the properties report the spec the object was actually created with, column
-settings included; changing them then has no effect on it. On an object opened *by its
-locator* (a reader's `GetIfxBlob`) they report the defaults, not that object's real settings.
+**An object that exists** — created by `Open()`, or read from a row — reports the spec the
+server holds for it, as JDBC does with `IfxBblob.getLoStat().getLobDescriptor()`. The driver
+reads it from `ifx_lo_stat` on first use and keeps it; an object that is not open is opened
+read-only for that and closed again. Measured on three objects whose spec came from the
+properties, from a column, and from the defaults, these values are the server's exactly — and
+for an object `Open()` just created they are the server's view, not what was sent (an empty
+`SBSpace` comes back as the sbspace actually used, flags as the sbspace's settings). Setting a
+property of an existing object throws `InvalidOperationException`: its spec is fixed.
 
 **Status** — `ReferenceCount`, `LastAccessTime`, `LastModificationTime` and `LastChangeTime`
 ask the server (`ifx_lo_stat`) on every read, as in the classic provider, so the object must
@@ -796,6 +801,8 @@ be open. The times are Unix seconds. Measured live:
 > |---|---|---|
 > | parameter value | `IfxSmartLOBLocator` only — its marshaller casts to it and calls `ToBytes()`; nothing converts an `IfxBlob` to its locator, and `locator.ToBytes()` is stored as content | `IfxSmartLOBLocator` as well, plus the object, the raw bytes and the hex text |
 > | `IfxSmartLOBLocator` constructors | accept bytes or text of any length | reject anything but the 72 bytes (or 144 hex digits) a locator is, with `ArgumentException` |
+> | create-spec properties of an object that exists (e.g. from a reader) | report the defaults, never the object's own settings; `ExtentSize` throws (the default spec's -1 is ESQL/C's failure value, and the provider raises the ODBC error) | the object's real spec, from `ifx_lo_stat` — what JDBC and IBM's ODBC sample `loinfo.c` (`ifx_lo_stat_cspec`) report |
+> | setting them on such an object | accepted and ignored | `InvalidOperationException` |
 >
 > `IfxSmartLOBLocator.Length` is `static`, the fixed 72, as in the classic provider. Code written
 > against the classic provider ports unchanged.

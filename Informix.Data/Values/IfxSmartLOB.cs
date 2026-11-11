@@ -75,7 +75,8 @@ public class IfxSmartLOBLocator
 /// <list type="bullet">
 /// <item><description><b>Existing</b> -- built from a locator (a reader's
 /// <see cref="IfxDataReader.GetIfxBlob"/>, or the <c>(connection, locator)</c> constructor):
-/// <see cref="Open"/> opens it.</description></item>
+/// <see cref="Open"/> opens it. Its create-spec properties report what the server holds for it
+/// and cannot be set.</description></item>
 /// <item><description><b>Not yet created</b> -- <see cref="IfxConnection.GetIfxBlob()"/> or the
 /// <c>(connection)</c> / <c>(connection, table, column)</c> constructors: nothing exists on the
 /// server and <see cref="IsNull"/> is true until <see cref="Open"/> creates it. That deferral is
@@ -94,10 +95,14 @@ public abstract class IfxSmartLOB : INullable
     private protected int Fd = -1;
     private protected long Pos;
 
-    // The create spec (ifx_lo_spec, see SqliLobSpec) the create-time properties read and write.
-    // Built on first use from the server's defaults; after Open() creates the object it holds the
-    // spec the object was actually created with (the column's attributes merged in, if any).
+    // The create spec (ifx_lo_spec, see SqliLobSpec) behind the create-time properties.
+    // * An object not created yet: the spec Open() will send -- the server's defaults until the
+    //   properties change it.
+    // * An object that exists (it has a locator): the spec the server reports for it in
+    //   IFX_LO_STAT, read on first use and kept (_specFromServer); the JDBC model, where
+    //   IfxBblob.getLoStat().getLobDescriptor() describes the object as stored.
     private byte[]? _spec;
+    private bool _specFromServer;
 
     // "table.column" whose storage clause (PUT ... IN (...), EXTENT SIZE, LOG ...) the server
     // folds into the create spec at Open() -- Informix.Net.Core's tableName/colName.
@@ -149,22 +154,85 @@ public abstract class IfxSmartLOB : INullable
     /// <summary>True while the smart LOB is open (an fd is held on the server).</summary>
     public bool IsOpen => Fd >= 0;
 
-    // The create spec, for the properties below. The SQL NULL sentinel has none, as in
-    // Informix.Net.Core, whose getters and setters throw InvalidOperationException for it.
-    private byte[] Spec =>
-        Connection is null
-            ? throw new InvalidOperationException("A SQL NULL smart LOB (IfxBlob.Null / IfxClob.Null) has no create spec.")
-            : _spec ??= SqliSession.BuildDefaultLobDescriptor();
+    // The spec the getters read. The SQL NULL sentinel has none, as in Informix.Net.Core, whose
+    // getters and setters throw InvalidOperationException for it.
+    private byte[] Spec
+    {
+        get
+        {
+            RequireNotNullSentinel();
+            if (LocatorBytes is null)
+                return _spec ??= SqliSession.BuildDefaultLobDescriptor();
+            if (!_specFromServer)
+            {
+                _spec = ReadSpecFromServer();
+                _specFromServer = true;
+            }
+            return _spec!;
+        }
+    }
+
+    // The spec the setters change: only while the object is still to be created. Afterwards the
+    // server holds the spec, and changing a client-side copy would only make the getters wrong
+    // (Informix.Net.Core accepts such a set and ignores it; JDBC's descriptor is a separate value
+    // that only IfxLoAlter could apply).
+    private byte[] SpecToChange
+    {
+        get
+        {
+            RequireNotNullSentinel();
+            if (LocatorBytes is not null)
+                throw new InvalidOperationException(
+                    "This smart LOB already exists, and its create spec is fixed: SBSpace, ExtentSize, MaxBytes, "
+                    + "EstimatedSize and Flags can only be set before Open() creates a new object "
+                    + "(IfxConnection.GetIfxBlob()/GetIfxClob()). Reading them reports the object's actual settings.");
+            return _spec ??= SqliSession.BuildDefaultLobDescriptor();
+        }
+    }
+
+    private void RequireNotNullSentinel()
+    {
+        if (Connection is null)
+            throw new InvalidOperationException("A SQL NULL smart LOB (IfxBlob.Null / IfxClob.Null) has no create spec.");
+    }
+
+    // The create spec the server reports for the object (the tail of its IFX_LO_STAT block, what
+    // ESQL/C's ifx_lo_stat_cspec extracts). An object that is not open is opened read-only just
+    // for this, as JDBC's IfxBblob.getLoStat() does.
+    private byte[] ReadSpecFromServer()
+    {
+        SqliSession session = Session;
+        if (IsOpen)
+            return SpecOf(session.LobStat(Fd));
+        int fd = session.LobOpen(LocatorBytes!, (int)IfxSmartLOBOpenMode.ReadOnly);
+        try
+        {
+            return SpecOf(session.LobStat(fd));
+        }
+        finally
+        {
+            session.LobClose(fd);
+        }
+
+        static byte[] SpecOf(byte[] stat) => stat.AsSpan(SqliLobStat.SpecOffset, SqliLobSpec.Size).ToArray();
+    }
 
     /// <summary>
     /// Expected size in bytes, a hint for the server's storage allocation; -1 (the default) lets
     /// the server decide. Part of the create spec: set it before <see cref="Open"/> creates the
-    /// object. Afterwards it reports the value the object was created with.
+    /// object.
     /// </summary>
+    /// <remarks>
+    /// <para>For an object that exists -- created by <see cref="Open"/>, or read from a row -- this
+    /// and the other create-spec properties report what the server holds for it (from
+    /// <c>ifx_lo_stat</c>, read once; the object is opened read-only for that if it is not open),
+    /// as JDBC's <c>IfxBblob.getLoStat().getLobDescriptor()</c> does. Setting them then throws
+    /// <see cref="InvalidOperationException"/>.</para>
+    /// </remarks>
     public long EstimatedSize
     {
         get => SqliLobSpec.GetEstimatedBytes(Spec);
-        set => SqliLobSpec.SetEstimatedBytes(Spec, value);
+        set => SqliLobSpec.SetEstimatedBytes(SpecToChange, value);
     }
 
     /// <summary>
@@ -174,7 +242,7 @@ public abstract class IfxSmartLOB : INullable
     public int ExtentSize
     {
         get => SqliLobSpec.GetExtentSize(Spec);
-        set => SqliLobSpec.SetExtentSize(Spec, value);
+        set => SqliLobSpec.SetExtentSize(SpecToChange, value);
     }
 
     /// <summary>
@@ -185,7 +253,7 @@ public abstract class IfxSmartLOB : INullable
     public int Flags
     {
         get => SqliLobSpec.GetFlags(Spec);
-        set => SqliLobSpec.SetFlags(Spec, value);
+        set => SqliLobSpec.SetFlags(SpecToChange, value);
     }
 
     /// <summary>
@@ -195,7 +263,7 @@ public abstract class IfxSmartLOB : INullable
     public long MaxBytes
     {
         get => SqliLobSpec.GetMaxBytes(Spec);
-        set => SqliLobSpec.SetMaxBytes(Spec, value);
+        set => SqliLobSpec.SetMaxBytes(SpecToChange, value);
     }
 
     /// <summary>
@@ -208,7 +276,7 @@ public abstract class IfxSmartLOB : INullable
     public string SBSpace
     {
         get => SqliLobSpec.GetSbspace(Spec);
-        set => SqliLobSpec.SetSbspace(Spec, value);
+        set => SqliLobSpec.SetSbspace(SpecToChange, value);
     }
 
     // ---- status, read from the server (IFX_LO_STAT) on every access; the object must be open ----
@@ -279,7 +347,8 @@ public abstract class IfxSmartLOB : INullable
         if (_column is not null)
             spec = session.ResolveColumnLobSpec(_column, spec);
         (int fd, byte[] locator) = session.LobCreate(spec, (int)mode);
-        _spec = spec;
+        _spec = null;              // the object exists: the getters now ask the server what it holds
+        _specFromServer = false;
         Fd = fd;
         LocatorBytes = locator;
         Pos = 0;

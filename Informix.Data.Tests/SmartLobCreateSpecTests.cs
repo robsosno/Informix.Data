@@ -216,12 +216,20 @@ public class SmartLobCreateSpecTests
         byte[] locator = Locator(0x41);
         byte[] resolved = SqliSession.BuildDefaultLobDescriptor();
         SqliLobSpec.SetSbspace(resolved, "colspace");          // what the column's PUT clause says
+        // After Open() the object exists, so SBSpace asks the server (ifx_lo_stat on the open fd).
+        var stat = new byte[644];
+        IfxWireConverter.WriteInt32(stat.AsSpan(0, 4), unchecked((int)0xFEDABABE));
+        resolved.CopyTo(stat, 40);
         byte[] script = SqliStatementKit.Join(
             SqliStatementKit.RoutineHandleFrame("db", 65),
             SqliStatementKit.EotFrame(),
             SqliStatementKit.FpReturnFrame(resolved, 0),
             SqliStatementKit.EotFrame(),
-            CreateReplies(locator, 39));
+            CreateReplies(locator, 39),
+            SqliStatementKit.RoutineHandleFrame("db", 69),
+            SqliStatementKit.EotFrame(),
+            SqliStatementKit.FpReturnFrame(stat),
+            SqliStatementKit.EotFrame());
 
         using var cn = SqliStatementKit.OpenConnection(script, out var duplex);
         long before = duplex.Output.Length;
@@ -230,6 +238,7 @@ public class SmartLobCreateSpecTests
 
         blob.Open(IfxSmartLOBOpenMode.ReadWrite);
 
+        Assert.Equal("colspace", blob.SBSpace);                 // what the server now reports for it
         string sent = Text(Sent(duplex, before));
         int sbinfo = sent.IndexOf(ColSbinfoSignature, StringComparison.Ordinal);
         int create = sent.IndexOf(CreateSignature, StringComparison.Ordinal);
@@ -238,7 +247,6 @@ public class SmartLobCreateSpecTests
         Assert.Contains("mine", sent[sbinfo..create]);          // the properties went in as the template
         Assert.Contains("colspace", sent[create..]);            // the server's answer is what was created
         Assert.DoesNotContain("mine", sent[create..]);
-        Assert.Equal("colspace", blob.SBSpace);                 // and what the object now reports
     }
 
     [Fact]

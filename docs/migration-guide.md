@@ -200,7 +200,7 @@ To **write**, bind a JSON `string` with `IfxType.Json`, or a JSON `string` (auto
 ### 4.5 Bulk load via insert cursor (the `USEPUT` capability, as a first-class API)
 
 The CSDK provider gated bulk insert behind `IFX_USEPUT`. Here it's an explicit type,
-`IfxBulkLoader` (native `SQ_PUT` insert-cursor engine), created off the connection:
+`IfxBulkLoader`, created off the connection:
 
 ```csharp
 using var loader = cn.CreateBulkLoader("INSERT INTO sales VALUES (?, ?, ?)");
@@ -214,7 +214,17 @@ long inserted = loader.Execute(l =>
 
 - `Open` / `Put` / `Flush` / `Complete` / `Discard` are also available for manual control; wrap
   in an `IfxTransaction` and set `loader.Transaction`. `Put(IDataRecord)` streams straight from
-  another reader.
+  another reader. `RowsPut`, `RowsInserted` and `PendingRows` track progress — `RowsInserted`
+  counts what the server has confirmed, so it trails `RowsPut` by whatever is still buffered.
+- **Two engines, picked for you.** The native `SQ_PUT` insert cursor — raw fixed-width tuple
+  images, no per-row type words — is used when the INSERT's columns are *all* fixed width.
+  Otherwise the loader falls back to the chained `SQ_BIND`/`SQ_EXECUTE` batch engine (the same
+  one `IfxRowBatch` uses), which still costs one round trip per buffer-full instead of per row.
+  The API is the same either way; [msg_flow.md](msg_flow.md) §5 has both flows.
+- `Mode = IfxBulkLoaderMode.PlainInserts` turns buffering off and executes every `Put` as its
+  own round trip — for pinpointing the bad row in a failing batch and for benchmarking buffered
+  against plain inserts, not for production loads. `Mode` and `HoldCursor` cannot be changed
+  once the loader has opened.
 - **Wire packing is automatic** and follows ESQL/C: rows are packed into `SQ_PUT` round trips
   up to the connection-string **`Fetch Buffer Size`** (`FET_BUF_SIZE`), which sizes
   insert-cursor buffers too — a larger value packs more rows per round trip. You don't tune
@@ -621,6 +631,56 @@ cmd.Parameters.Add(new IfxParameter("mac", new byte[] { 0x00, 0x00, 0x12, 0xDF, 
   `BINARYVAR` column stores a corrupt value (live-tested on IDS 14.10), so there is no reference
   behaviour to match there; `BINARY18` through JDBC does pad correctly.
 
+### 4.17 Pipelined batches — `IfxRowBatch` and `IfxBatch` (`DbBatch`)
+
+Between a plain `IfxCommand` loop and a full `IfxBulkLoader` sit two batch types the
+classic providers had no equivalent of. Both collapse the *execute* phase into as few
+round trips as the wire's ~32 KB PDU guard allows, instead of one per statement.
+
+**`IfxRowBatch` — one statement, many value rows.** Prepared once; every row's
+`SQ_BIND + SQ_EXECUTE` chains into one PDU. `Execute()` returns the per-row
+affected-row counts, in order.
+
+```csharp
+var batch = cn.CreateRowBatch("INSERT INTO sales VALUES (?, ?, ?)");
+foreach (var row in source)
+    batch.AddRow(row.Id, row.Name, row.Amount);
+int[] affected = batch.Execute();
+```
+
+Named placeholders (`@name`/`:name`) work in the text, but a row carries only positional
+values, so supply them in placeholder-occurrence order — a repeated name's value repeated.
+For a large load prefer `IfxBulkLoader` (§4.5): it is denser still and streams rather than
+buffering every row client-side.
+
+**`IfxBatch` — the standard `DbBatch`, with different statements.**
+`cn.CreateBatch()` (and `CanCreateBatch`) give the ADO.NET batch type, so portable
+`System.Data.Common` code gets the pipelining for free.
+
+```csharp
+using var batch = cn.CreateBatch();
+batch.BatchCommands.Add(new IfxBatchCommand("UPDATE stock SET qty = qty - 1 WHERE id = 7"));
+batch.BatchCommands.Add(new IfxBatchCommand("DELETE FROM cart WHERE id = 7"));
+int affected = batch.ExecuteNonQuery();
+```
+
+Worth knowing before you rely on it:
+
+* `ExecuteNonQuery` is the pipelined path. A statement the batch has not prepared before
+  still costs its own prepare round trip the first time — with the prepared-statement
+  cache off, every time — and only its execute chains with the rest.
+* `ExecuteReader` is **not** pipelined: one round trip per command as `NextResult`
+  advances, because a session may hold only one open cursor.
+* `ExecuteNonQuery` refuses a command whose statement describes a result set (a SELECT,
+  or a RETURNING procedure) and names the offending command in
+  `DbException.BatchCommand`. Use `ExecuteReader` for those.
+* On the first error the server abandons the rest of the PDU, so later statements in the
+  same flush never run.
+
+Round-trip counts for both: [msg_flow.md](msg_flow.md) §3 and §4.
+
+---
+
 ## 5. Quick reference — old knob → new home
 
 | What you did before | Now |
@@ -639,6 +699,7 @@ cmd.Parameters.Add(new IfxParameter("mac", new byte[] { 0x00, 0x00, 0x12, 0xDF, 
 | JSON/BSON as opaque bytes | JSON text via `GetString`; DOM via `GetFieldValue<JsonDocument>`; write with `IfxType.Json`/`Bson` |
 | `IFX_WIRE_TRACE` only | `ILoggerFactory` + `ActivitySource`/`Meter` `"Informix.Data"`; wire trace still available |
 | pass connection strings around | `IfxDataSource` / `IfxDataSourceBuilder` |
+| a loop of `ExecuteNonQuery` calls | `IfxRowBatch` (one statement, N rows) or `IfxBatch`/`DbBatch` (different statements) — one flush instead of one round trip each; see §4.17 |
 | `SELECT dbinfo('sqlca.sqlerrd1')` after INSERT | `IfxCommand.LastSerial` / `LastSerial8` / `LastBigSerial` + `LastSerialKind` (no round trip) |
 | `SET ISOLATION` after every connect | `Isolation Level=RepeatableRead` key (also accepts the ODBC `ISOLATIONLEVEL` numeric codes `0`-`5` directly), applied once at `Open()`. **Leave it out on a database without logging** — unspecified (the default) sends no `SET ISOLATION` at all |
 | `SET TRANSACTION READ ONLY` per transaction | `Read Only=true` key (every transaction the driver begins), or an explicit `isReadOnly` argument to `BeginTransaction(IsolationLevel, bool)`/`BeginTransaction(bool)` for one transaction — server-enforced, SQLCODE -878 on a write, live-verified |

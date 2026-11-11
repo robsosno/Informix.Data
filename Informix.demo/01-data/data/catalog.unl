@@ -1,0 +1,74 @@
+0|1|HRO|case|ROW(/tmp/cn_1001.gif,"Your First Season's Baseball Glove")|0,62,/tmp/catalog.des|
+0|1|HSK|case|ROW(NULL,"All Leather, Hand Stitched, Deep Pockets, Sturdy Webbing That Won't Let Go")||
+0|1|SMT|case|ROW(NULL,"A Sturdy Catcher's Mitt With the Perfect Pocket")||
+0|2|HRO|each|ROW(NULL,"Highest Quality Ball Available, from the Hand-Stitching to the Robinson Signature")||
+0|3|HSK|case|ROW(NULL,"High-Technology Design Expands the Sweet Spot")||
+0|3|SHM|case|ROW(NULL,"Durable Aluminum for High School and Collegiate Athletes")||
+0|4|HSK|case|ROW(NULL,"Quality Pigskin with Norm Van Brocklin Signature")||
+0|4|HRO|case|ROW(NULL,"Highest Quality Football for High School and Collegiate Competitions")||
+0|5|NRG|each|ROW(NULL,"Wide Body Amplifies Your Natural Abilities by Providing More Power Through Aerodynamic Design")||
+0|5|SMT|each|ROW(NULL,"Mid-Sized Racquet for the Improving Player")||
+0|5|ANZ|each|ROW(NULL,"Antique Replica of Classic Wooden Racquet Built with Cat-Gut Strings")||
+0|6|SMT|can|ROW(NULL,"High-Visibility Tennis, Day or Night")||
+0|6|ANZ|can|ROW(NULL,"Durable Construction Coupled with the Brightest Colors Available")||
+0|7|HRO|case|ROW(NULL,"Long-Life Basketballs for Indoor Gymnasiums")||
+0|8|ANZ|case|ROW(NULL,"Professional Volleyballs for Indoor Competitions")||
+0|9|ANZ|each|ROW(NULL,"Sanctioned Volleyball Netting for Indoor Professional and Collegiate Competition")||
+0|101|PRC|box|ROW(NULL,"Ultimate in Puncture Protection, Tires Designed for In-City Riding")||
+0|101|SHM|each|ROW(NULL,"The Perfect Tire for Club Rides or Training")||
+0|102|SHM|case|ROW(NULL,"Thrust-Bearing and Spring-Sleeve Brake Set Guarantees Smooth Action")||
+0|102|PRC|case|ROW(NULL,"Computer Design Delivers Rigid Yet Vibration-Free Brakes")||
+0|103|PRC|each|ROW(NULL,"Climb Any Mountain: ProCycle's Front Derailleur Adds Finesse to Your ATB")||
+0|104|PRC|each|ROW(NULL,"Computer-Aided Design Engineers 100-Tooth Capacity into ProCycle's Rear Derailleur")||
+0|105|PRC|pair|ROW(NULL,"Durable Training Wheels That Hold True Under Toughest Conditions")||
+0|105|SHM|pair|ROW(NULL,"Extra Lightweight Wheels for Training or High-Performance Touring")||
+0|106|PRC|each|ROW(NULL,"ProCycle Stem with Pearl Finish")||
+0|107|PRC|pair|ROW(NULL,"The Ultimate in Riding Comfort, Lightweight with Anatomical Support")||
+0|108|SHM|each|ROW(/tmp/cn_1027.gif,"Extra-Durable Crankset (Mtn. bike)")|63,9a,/tmp/catalog.des|
+0|109|PRC|case|ROW(NULL,"Classic Toeclip Improved to Prevent Soreness at Clip Buckle")||
+0|109|SHM|case|ROW(NULL,"Ingenious Pedal/Clip Design Delivers Maximum Power and Fast Unlocking")||
+0|110|PRC|case|ROW(NULL,"Feather-Light, Quick-Release, Maximum Protection Helmet")||
+0|110|ANZ|case|ROW(/tmp/cn_1031.gif,"Feather-Light, Maximum Protection Helmet")|0fd,7b,/tmp/catalog.des|
+0|110|SHM|case|ROW(NULL,"Mountain Bike Helmet: Smooth Cover Eliminates the Worry of Brush Snags but Delivers Maximum Protection")||
+0|110|HRO|case|ROW(NULL,"Lightweight Plastic with Vents Assures Cool Comfort Without Sacrificing Protection")||
+0|110|HSK|case|ROW(NULL,"Teardrop Design Used by Yellow Jerseys; You Can Time the Difference")||
+0|111|SHM|each|ROW(NULL,"Fully Equipped Bicycle Designed for the Serious Commuter Who Mixes Business with Pleasure")||
+0|112|SHM|each|ROW(NULL,"We Selected the Ideal Combination of Touring Bike Equipment, Then Turned It into This Package Deal: High Performance on the Roads, Maximum Pleasure Everywhere")||
+0|113|SHM|each|ROW(NULL,"Designed for the Serious Competitor, the Complete Racing Machine")||
+0|114|PRC|pair|ROW(NULL,"Riding Gloves for Comfort and Protection")||
+0|201|NKL|each|ROW(NULL,"Full-Comfort, Long-Wearing Golf Shoes for Men and Women")||
+0|201|ANZ|each|ROW(NULL,"Waterproof Protection Ensures Maximum Comfort and Durability in All Climates")||
+0|201|KAR|each|ROW(NULL,"Karsten's Top Quality Shoe Combines Leather and Leather Mesh")||
+0|202|NKL|case|ROW(NULL,"Starter Set of Woods, Ideal for High School and Collegiate Classes")||
+0|202|KAR|case|ROW(NULL,"High-Quality Woods Appropriate for High School Competitions or Serious Amateurs")||
+0|203|NKL|case|ROW(NULL,"Set of Irons Available from Factory at Tremendous Savings: Discontinued Line.")||
+0|204|KAR|each|ROW(NULL,"High-Quality Beginning Set of Irons Appropriate for High School Competitions")||
+0|205|NKL|pack|ROW(/tmp/cn_1046.gif,"Golf Ball (Flourescent Yellow)")|179,16,/tmp/catalog.des|
+0|205|ANZ|pack|ROW(NULL,"Long Drive Golf Balls: White")||
+0|205|HRO|pack|ROW(NULL,"HiFlier Golf Balls: Case Includes Fluorescent Yellow and Standard White")||
+0|301|NKL|each|ROW(/tmp/cn_1049.gif,"Gel Pads For High-Mileage Runners")|18e,a4,/tmp/catalog.des|
+0|301|HRO|each|ROW(NULL,"Pronators and Supinators Take Heart: A Serious Training Shoe For Runners Who Need Motion Control")||
+0|301|SHM|each|ROW(NULL,"The Training Shoe Engineered for Marathoners and Ultra-Distance Runners")||
+0|301|PRC|each|ROW(NULL,"A Woman's Racing Flat That Combines Extra Forefoot Protection with a Slender Heel")||
+0|301|KAR|each|ROW(NULL,"Durable Training Flat That Can Carry You Through Marathon Miles")||
+0|301|ANZ|each|ROW(NULL,"Motion Control, Protection, and Extra Toebox Room")||
+0|302|KAR|box|ROW(NULL,"Finally, an Ice Pack for Achilles Injuries and Shin Splints That You Can Take to the Office")||
+0|303|PRC|box|ROW(NULL,"Knock Their Socks off with YOUR Socks!")||
+0|303|KAR|pair|ROW(NULL,"100% Nylon Blend Socks - No Cotton!")||
+0|304|ANZ|box|ROW(NULL,"Athletic Watch w/4-Lap Memory")||
+0|304|HRO|box|ROW(NULL,"Waterproof Triathlete Watch in Competition Colors")||
+0|305|HRO|case|ROW(NULL,"Comprehensive First-Aid Kit Essential for Team Practices, Team Traveling")||
+0|306|PRC|each|ROW(NULL,"Enjoy Bicycling with Your Child on a Tandem; Make Your Family Outing Safer")||
+0|306|SHM|each|ROW(NULL,"Consider a Touring Vacation For the Entire Family: A Lightweight, Touring Tandem for Parent and Child")||
+0|307|PRC|each|ROW(NULL,"Infant Jogger Keeps a Running Family Together")||
+0|308|PRC|each|ROW(NULL,"As Your Family Grows, Infant Jogger Grows with You")||
+0|309|HRO|case|ROW(NULL,"Swimmers Can Prevent Ear Infection All Season Long")||
+0|309|SHM|case|ROW(NULL,"Swimmer's Ear Drops Specially Formulated for Children")||
+0|310|SHM|case|ROW(NULL,"Exceptionally Durable, Compact Kickboard for Team Practice")||
+0|310|ANZ|case|ROW(NULL,"High-Quality Kickboard")||
+0|311|SHM|box|ROW(NULL,"Hot Training Tool - Webbed Swim Gloves Build Arm Strength and Endurance")||
+0|312|SHM|box|ROW(NULL,"Anti-Fog Swimmer's Goggles: Quantity Discount.")||
+0|312|HRO|box|ROW(NULL,"Swim Goggles: Traditional Rounded Lens for Greater Comfort.")||
+0|313|SHM|box|ROW(NULL,"Team Logo Silicone Swim Cap")||
+0|313|ANZ|box|ROW(NULL,"Durable Squared-off Silicone Swim Cap")||
+0|302|HRO|each|ROW(NULL,"Water Compartment Combines with Ice to Provide Optimal Orthopedic Treatment")||

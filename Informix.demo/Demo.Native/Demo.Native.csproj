@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Helpers for the programs in 02-native, which use Informix.Data directly. -->
+  <PropertyGroup>
+    <AssemblyName>Demo.Native</AssemblyName>
+    <RootNamespace>Demo</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Informix.Data\Informix.Data.csproj" />
+    <ProjectReference Include="..\Demo.Common\Demo.Common.csproj" />
+  </ItemGroup>
+
+</Project>

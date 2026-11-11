@@ -239,6 +239,14 @@ Common `SQ_DESCRIBE.statement_type` values: 2 SELECT, 6 INSERT, 34 BEGIN WORK, 3
 | Set / MultiSet / List / Row | 19 / 20 / 21 / 22 |
 | SQLUDTVar / SQLUDTFixed / LVarChar | 40 / 41 / 43 |
 | Blob / Clob / Json / Bson | 102 / 101 / 103 / 104 (internal codes) |
-| SmartLOBLocator | 44 |
+| SmartLOBLocator / BinaryVar / Binary18 | 44 |
 | IntervalYearMonth / IntervalDayFraction | 14 |
 | Other | 49 |
+
+The Blob/Clob/Json/Bson codes (102/101/103/104) are the driver's internal `SqliTypeCode`
+values, used when classifying a described column. As *bind* values these four, and the two
+BINARY types, all travel as opaque UDTs: `SendRecv` (44), extended owner `informix`, and
+the type name (`"json"`, `"bson"`, `"binaryvar"`, `"binary18"`) — a Clob/Blob parameter is
+staged as a smart large object first and binds its 72-byte locator. So the type name, not
+the code, is what tells them apart on the wire. `Binary18` is zero-padded to its 18 bytes
+client-side; `BinaryVar` is sent as-is (the server enforces its own 253-byte ceiling).

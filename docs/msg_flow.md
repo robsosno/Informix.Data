@@ -1,11 +1,18 @@
 # Informix.Data — SQLI message flows per execution API
 
 How each execution API of the driver travels on the wire, compared: a plain
-`IfxCommand` (two inserts, two queries), `IfxRowBatch`, `IfxBatch`,
-`IfxBulkLoader`, plus what the `Optofc` switch and the prepared-statement
-cache change. Companion to [wire-protocol.md](wire-protocol.md) (framing,
-encodings, traps) — this file is only about *which messages, in which round
-trips*.
+`IfxCommand` (two inserts, two queries, `EXECUTE PROCEDURE`,
+`ExecuteScalar`), `IfxRowBatch`, `IfxBatch`, `IfxBulkLoader`, plus what the
+`Optofc` switch and the prepared-statement cache change. Companion to
+[wire-protocol.md](wire-protocol.md) (framing, encodings, traps) — this file
+is only about *which messages, in which round trips*.
+
+Source references name the method rather than a line number, which rots: the
+flows live in [SqliSession.cs](../Informix.Data/Sqli/SqliSession.cs),
+[IfxCommand.cs](../Informix.Data/Ado/IfxCommand.cs),
+[IfxRowBatch.cs](../Informix.Data/Ado/IfxRowBatch.cs),
+[IfxBatch.cs](../Informix.Data/Ado/IfxBatch.cs) and
+[IfxBulkLoader.cs](../Informix.Data/Ado/IfxBulkLoader.cs).
 
 Notation: each `→` block is one client PDU (always terminated by `SQ_EOT`),
 each `←` block is the server reply PDU; one `→`/`←` pair = one round trip
@@ -15,7 +22,7 @@ replies.
 ## 1. Plain: two inserts (`IfxCommand.ExecuteNonQuery` ×2)
 
 **Parameterless, cache off** — the one-round-trip `SQ_COMMAND` path
-([IfxCommand.cs:404](../IfxCommand.cs)): prepare/execute/release are fused
+([SqliSession.ExecuteImmediate](../Informix.Data/Sqli/SqliSession.cs)): prepare/execute/release are fused
 into one opcode sequence, there is no statement id to reuse. **2 RTs total.**
 
 ```
@@ -75,7 +82,8 @@ sequenceDiagram
 For **fixed-width rows** the first fetch piggybacks in the same PDU as
 `SQ_OPEN` — one RT opens the cursor *and* delivers the first tuple buffer.
 When the result fits one buffer the server appends `SQ_CLOSE` (auto-close at
-end of rows, [SqliSession.cs:2326](../Sqli/SqliSession.cs)), so the explicit
+end of rows, handled in `SqliSession.ReceiveMessage`'s `SqliMessage.Close` case,
+[SqliSession.cs](../Informix.Data/Sqli/SqliSession.cs)), so the explicit
 close costs nothing. Best case per query: prepare + open/fetch + release =
 3 RTs → **6 RTs for two queries**; with cache on and warm: **1 RT per
 query**.
@@ -86,7 +94,7 @@ where OFC matters — see §6.
 ## 3. `IfxRowBatch` — one statement, N value rows
 
 `Execute()` → `SqliSession.ExecuteBatch`
-([SqliSession.cs:552](../Sqli/SqliSession.cs)). `SQ_ID` is sent **once**,
+([SqliSession.ExecuteBatch](../Informix.Data/Sqli/SqliSession.cs)). `SQ_ID` is sent **once**,
 then bind+execute repeats per row, all in one PDU:
 
 ```mermaid
@@ -111,7 +119,7 @@ So 1000 small inserts ≈ prepare + a handful of 32 KB round trips, instead of
 ## 4. `IfxBatch` (DbBatch) — heterogeneous statements
 
 `ExecuteNonQuery` pipelines via `ExecuteChain`
-([SqliSession.cs:612](../Sqli/SqliSession.cs)). Phase 1: each **distinct**
+([SqliSession.ExecuteChain](../Informix.Data/Sqli/SqliSession.cs)). Phase 1: each **distinct**
 parameterized statement not found in the cache costs its own prepare RT
 (deliberately not chained — the driver must see `DescribesResultSet` before
 deciding it is safe to run). Phase 2: everything executes behind **one
@@ -181,7 +189,7 @@ Only affects **opening a forward-only cursor over a prepared SELECT or EXECUTE
 PROCEDURE with a variable-length row** (fixed-width rows already piggyback the
 fetch either way; scroll cursors never qualify — `OpenScrollCursor` doesn't
 gate on `Optofc` at all). Port of JDBC `IfxSqliConnect.optofc`
-([SqliSession.cs:927](../Sqli/SqliSession.cs)), extended to EXECUTE PROCEDURE
+([SqliSession.OpenCursor](../Informix.Data/Sqli/SqliSession.cs)), extended to EXECUTE PROCEDURE
 because IDS accepts the merged PDU for it verbatim (live-verified 2026-08-03).
 
 `Optofc = false` — two round trips to the first row:
@@ -216,7 +224,7 @@ one round trip per variable-length query open.
 
 ## 7. Statement cache on vs off (`PreparedStatementCacheSize`)
 
-The cache ([SqliStatementCache.cs](../Sqli/SqliStatementCache.cs)) changes
+The cache ([SqliStatementCache.cs](../Informix.Data/Sqli/SqliStatementCache.cs)) changes
 which of the three phases touch the wire:
 
 | Phase | Cache off | Cache on |
@@ -245,3 +253,96 @@ parameterless statement costs 2 RTs instead of 1, but every repeat is 1 RT
 with no server-side re-parse. The cache is also what makes IfxBatch's
 pipelining pay off: with it off, every batch run re-pays one prepare RT per
 distinct parameterized statement before the single execute PDU.
+
+## 8. `EXECUTE PROCEDURE` — parameterized, single-row result with VARCHAR columns
+
+Same code path as §2 (`ExecuteReaderCore` → `OpenCursor`): `StatementType == ExecProc`
+with output columns satisfies `DescribesResultSet` exactly like a SELECT. `Optofc`
+covers `Select` **or** `ExecProc`
+(`bool optofc = Optofc && StatementType is Select or ExecProc`,
+[SqliSession.OpenCursor](../Informix.Data/Sqli/SqliSession.cs)) — extended beyond the
+reference JDBC driver's `Select`-only gate because IDS accepts the merged PDU for
+EXECUTE PROCEDURE verbatim (§6). `SQ_HOLD` is never sent for an `ExecProc` cursor
+(`_cursorIsHold = hold && StatementType != ExecProc`), whatever the caller asked for.
+
+A VARCHAR output column sets `_rowNeedsWalk`; with `Optofc` off the
+`if (_rowNeedsWalk && !optofc)` guard forces the open reply to be consumed on its own
+before `SQ_RETTYPE + SQ_NFETCH` can be sent. With `Optofc` on the guard never fires, so
+the pair rides in the same PDU as `SQ_OPEN`, exactly like §6's variable-length SELECT.
+
+```mermaid
+sequenceDiagram
+    participant C as Client (Informix.Data)
+    participant S as IDS server
+    Note over C,S: RT 1 — prepare (skipped on a cache hit)
+    C->>S: SQ_PREPARE(text, nParams) + SQ_NDESCRIBE + SQ_WANTDONE
+    S-->>C: SQ_DESCRIBE(stmtId, ExecProc, output columns incl. VARCHAR)
+    alt Optofc = false (default) — 2 RTs to the one row
+        Note over C,S: RT 2 — open (no SQ_HOLD — never sent for ExecProc)
+        C->>S: SQ_ID + SQ_CURNAME + SQ_BIND(params) + SQ_OPEN
+        S-->>C: open reply (no rows yet)
+        Note over C,S: RT 3 — typed fetch of the one row
+        C->>S: SQ_ID + SQ_RETTYPE(client receive types) + SQ_NFETCH
+        S-->>C: SQ_TUPLE(the row) + SQ_CLOSE (auto, single row) + SQ_DONE
+    else Optofc = true — 1 RT to the one row
+        Note over C,S: RT 2 — open + typed fetch piggybacked
+        C->>S: SQ_ID + SQ_CURNAME + SQ_BIND(params) + SQ_OPEN + SQ_RETTYPE + SQ_NFETCH
+        S-->>C: open reply + SQ_TUPLE(the row) + SQ_CLOSE (auto, single row) + SQ_DONE
+    end
+    Note over C,S: RT 3/4 — release (free when cache on)
+    C->>S: SQ_ID + SQ_RELEASE
+    S-->>C: (empty reply — just SQ_EOT)
+```
+
+**4 RTs cold with `Optofc` off** (prepare, open, typed fetch, release); **3 RTs cold with
+`Optofc` on** (prepare, open+fetch fused, release) — the same floor as the equivalent
+SELECT in §6. With the prepared-statement cache warm (§7) prepare and release both go
+free, leaving **2 RTs per call off / 1 RT per call on**, matching the fixed-width-column
+floor without a schema change.
+
+## 9. `ExecuteScalar()` — first column of the first row
+
+`IfxCommand.ExecuteScalar` has no wire opcode of its own: it opens an ordinary reader and
+takes `GetValue(0)` of the first row (`null` when there is no row or no column), so it
+rides the §2 cursor-open path exactly. The only scalar thing about it is that the query
+answers one row — `NextRow()` never has to fetch again, and the server's auto-close
+piggybacks on the reply that carries the row.
+
+```mermaid
+sequenceDiagram
+    participant C as Client (Informix.Data)
+    participant S as IDS server
+    Note over C,S: RT 1 — prepare (skipped on a cache hit)
+    C->>S: SQ_PREPARE(select …) + SQ_NDESCRIBE + SQ_WANTDONE
+    S-->>C: SQ_DESCRIBE(stmtId, columns)
+    alt fixed-width scalar column (COUNT(*), MAX(int_col))
+        Note over C,S: RT 2 — open + fetch fused (piggyback, as in §2)
+        C->>S: SQ_ID + SQ_CURNAME + [SQ_BIND] + SQ_OPEN + SQ_NFETCH
+        S-->>C: SQ_TUPLE(the one row) + SQ_CLOSE (auto) + SQ_DONE
+    else variable-length scalar column (MAX(varchar_col)), Optofc off (default)
+        Note over C,S: RT 2 — open, consumed alone
+        C->>S: SQ_ID + SQ_CURNAME + [SQ_BIND] + SQ_OPEN
+        S-->>C: open reply (no rows yet)
+        Note over C,S: RT 3 — typed fetch
+        C->>S: SQ_RETTYPE(client receive types) + SQ_NFETCH
+        S-->>C: SQ_TUPLE(the one row) + SQ_CLOSE (auto) + SQ_DONE
+    end
+    Note over C,S: RT n — release (free when cache on)
+    C->>S: SQ_ID + SQ_RELEASE
+    S-->>C: (empty reply — just SQ_EOT)
+```
+
+**3 RTs cold** for a fixed-width scalar (prepare, open/fetch, release) — **1 RT** once the
+statement is cached and warm. A variable-length scalar costs **4 RTs cold / 2 RTs cached**
+with `Optofc` off; turning `Optofc` on fuses RT 2/3 back into one PDU and restores the
+fixed-width floor (**3 RTs cold / 1 RT cached**).
+
+## 10. How the options compose
+
+`Optofc` saves one round trip per variable-length query open. The cache saves the prepare
+and release round trips around it. The three batch APIs collapse the execute phase itself
+— `IfxRowBatch` for one statement over many rows, `IfxBatch` for many statements behind
+one flush, `IfxBulkLoader` for the densest raw-tuple stream.
+
+Best case for a repeated variable-length SELECT with both switches on is a **single round
+trip**: open plus first buffer, with prepare and release both free.

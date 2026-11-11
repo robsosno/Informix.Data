@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Console helpers and connection-string handling shared by every demo. It does NOT reference
+    Informix.Data, so the programs in 03-abstraction can use it without seeing the driver.
+  -->
+  <PropertyGroup>
+    <AssemblyName>Demo.Common</AssemblyName>
+    <RootNamespace>Demo</RootNamespace>
+  </PropertyGroup>
+
+</Project>

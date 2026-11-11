@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>GenericSerial</AssemblyName>
+    <RootNamespace>Demos.GenericSerial</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Demo.Bootstrap\Demo.Bootstrap.csproj" />
+  </ItemGroup>
+
+</Project>

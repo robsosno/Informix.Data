@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Creates and fills the demo databases from the scripts and .unl files next to this project
+    (../sql, ../data). Run with:
+        dotnet run, with this folder as the project (the options are listed in Options.cs)
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>SuperstoreLoader</AssemblyName>
+    <RootNamespace>SuperstoreLoader</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Informix.Data\Informix.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reads Informix.demo/.env; the file needs nothing but the BCL, so it is linked, not referenced. -->
+    <Compile Include="..\..\Demo.Common\DemoEnv.cs" Link="DemoEnv.cs" />
+  </ItemGroup>
+
+</Project>

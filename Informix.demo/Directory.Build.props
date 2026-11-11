@@ -1,0 +1,16 @@
+<Project>
+
+  <!--
+    Shared by every demo project (and the loader), and deliberately separate from
+    Informix.Data/Directory.Build.props: the demos target net10.0 and are not held to the
+    driver's warnings-as-errors settings. Informix.demo.sln builds these plus the driver;
+    the test project (Informix.Data.Tests) is in no solution and is run with dotnet test.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

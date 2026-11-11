@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The only place in 03-abstraction that knows which database driver is used. The programs there
+    call Bootstrap.Register() once and from then on use nothing but System.Data.Common.
+  -->
+  <PropertyGroup>
+    <AssemblyName>Demo.Bootstrap</AssemblyName>
+    <RootNamespace>Demo</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Informix.Data\Informix.Data.csproj" />
+    <ProjectReference Include="..\Demo.Common\Demo.Common.csproj" />
+  </ItemGroup>
+
+</Project>

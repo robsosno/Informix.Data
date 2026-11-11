@@ -1,0 +1,2 @@
+# holds the connection string with a password; copy .env.example to .env
+.env

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "informix": {
+      "command": "dotnet",
+      "args": ["InformixMcp/bin/Debug/net10.0/InformixMcp.dll"]
+    }
+  }
+}

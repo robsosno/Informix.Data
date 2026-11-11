@@ -1,0 +1,19 @@
+<Project>
+
+  <!--
+    Scoped to Informix.Data/ only (MSBuild walks up from a project's own directory
+    looking for Directory.Build.props, and Informix.Data.Tests/ is a sibling, not a
+    descendant, of this directory, so the test project is unaffected, and so are the
+    demo projects under Informix.demo/, which have a Directory.Build.props of their
+    own). The driver already builds with zero warnings; tightening now is free and
+    will not be later.
+  -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Default</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+</Project>

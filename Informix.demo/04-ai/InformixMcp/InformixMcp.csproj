@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    An MCP server (stdio) that lets an AI assistant query an Informix database through Informix.Data.
+    The connection string is read from a .env file by this process only; the assistant sees tool
+    results, never the connection string. The connection is forced to Select Only + Read Only.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>InformixMcp</AssemblyName>
+    <RootNamespace>Demos.InformixMcp</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.3.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Informix.Data\Informix.Data.csproj" />
+  </ItemGroup>
+
+</Project>

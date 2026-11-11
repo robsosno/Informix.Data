@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>DateTimeTypes</AssemblyName>
+    <RootNamespace>Demos.DateTimeTypes</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Demo.Native\Demo.Native.csproj" />
+  </ItemGroup>
+
+</Project>

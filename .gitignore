@@ -69,3 +69,7 @@ build/
 *.log
 *.lscache
 
+
+# ApiShapeGuardTests writes this only when the public surface changed; the approved
+# snapshot next to it is the tracked one.
+PublicApi.received.txt

@@ -5,31 +5,62 @@ using Informix.Data.Sqli;
 namespace Informix.Data;
 
 /// <summary>
-/// A smart-large-object locator — the 72-byte <c>ifx_lo_t</c> handle the server
-/// uses to reference CLOB/BLOB data in an sbspace.
+/// A smart-large-object locator — the <see cref="Length"/>-byte <c>ifx_lo_t</c> handle the
+/// server uses to reference CLOB/BLOB data in an sbspace. Immutable: the constructors copy
+/// their input and <see cref="ToBytes"/> returns a copy.
 /// </summary>
 public class IfxSmartLOBLocator
 {
     private readonly byte[] _bytes;
 
+    /// <summary>A locator from its raw bytes, as <see cref="ToBytes"/> returns them.</summary>
+    /// <exception cref="ArgumentException"><paramref name="locator"/> is not exactly <see cref="Length"/> bytes.</exception>
     public IfxSmartLOBLocator(byte[] locator)
     {
         ArgumentNullException.ThrowIfNull(locator);
+        if (locator.Length != Length)
+            throw new ArgumentException(
+                $"A smart-large-object locator is {Length} bytes; got {locator.Length}.", nameof(locator));
         _bytes = (byte[])locator.Clone();
     }
 
+    /// <summary>A locator from its hex text, as <see cref="ToString"/> writes it.</summary>
+    /// <exception cref="ArgumentException"><paramref name="locator"/> is not <see cref="Length"/> × 2 hex digits.</exception>
     public IfxSmartLOBLocator(string locator)
     {
         ArgumentNullException.ThrowIfNull(locator);
-        _bytes = Convert.FromHexString(locator);
+        if (locator.Length != 2 * Length)
+            throw new ArgumentException(
+                $"A smart-large-object locator's hex text (IfxSmartLOBLocator.ToString()) is {2 * Length} hex digits; "
+                + $"got {locator.Length} characters.", nameof(locator));
+        try
+        {
+            _bytes = Convert.FromHexString(locator);
+        }
+        catch (FormatException e)
+        {
+            throw new ArgumentException(
+                "A smart-large-object locator's hex text (IfxSmartLOBLocator.ToString()) may contain only hex digits.",
+                nameof(locator), e);
+        }
     }
 
-    public int Length => _bytes.Length;
+    /// <summary>
+    /// The size of every locator in bytes: 72, <c>sizeof(ifx_lo_t)</c>. A property of the type,
+    /// not of an instance -- static as in Informix.Net.Core, and the single size the Informix JDBC
+    /// driver knows too (<c>IfxLocator.IFX_LOCATOR_SIZE</c>; unlike the stat and spec blocks it has
+    /// no smaller pre-long-ID variant). The constructors reject anything else.
+    /// </summary>
+    public static int Length => 72;
 
+    /// <summary>The locator's raw bytes (a copy).</summary>
     public byte[] ToBytes() => (byte[])_bytes.Clone();
 
+    /// <summary>The locator as hex text, which the string constructor reads back.</summary>
     public override string ToString() => Convert.ToHexString(_bytes);
 
+    // The bytes themselves, for the bind path: the instance never lets them out otherwise, so
+    // reading them without a copy cannot change the locator.
     internal byte[] Raw => _bytes;
 }
 
@@ -180,12 +211,31 @@ public abstract class IfxSmartLOB : INullable
         set => SqliLobSpec.SetSbspace(Spec, value);
     }
 
-    /// <summary>The reference count (not tracked client-side; always throws).</summary>
-    public int ReferenceCount => throw new NotSupportedException("ReferenceCount is not available from the client.");
+    // ---- status, read from the server (IFX_LO_STAT) on every access; the object must be open ----
 
-    public int LastAccessTime => throw new NotSupportedException("LastAccessTime is not available from the client.");
-    public int LastChangeTime => throw new NotSupportedException("LastChangeTime is not available from the client.");
-    public int LastModificationTime => throw new NotSupportedException("LastModificationTime is not available from the client.");
+    /// <summary>
+    /// How many rows reference the object. 0 for one no row points at yet -- an object created by
+    /// <see cref="Open"/> and not yet stored, which is the orphan a rollback or a delete leaves.
+    /// </summary>
+    public int ReferenceCount => StatInt32(SqliLobStat.ReferenceCountOffset);
+
+    /// <summary>
+    /// Time of the last access, in Unix seconds, as the server records it. Measured on IDS 14.10:
+    /// it moves on reads and writes and when rows come to reference the object -- with or without
+    /// <see cref="IfxSmartLOBCreateTimeFlags.KeepAccessTime"/>.
+    /// </summary>
+    public int LastAccessTime => StatInt32(SqliLobStat.LastAccessTimeOffset);
+
+    /// <summary>
+    /// Time of the last change of the object's status, in Unix seconds: a write, or a change of
+    /// <see cref="ReferenceCount"/> as rows come to point at it or stop doing so.
+    /// </summary>
+    public int LastChangeTime => StatInt32(SqliLobStat.LastStatusTimeOffset);
+
+    /// <summary>Time of the last write to the object's contents, in Unix seconds.</summary>
+    public int LastModificationTime => StatInt32(SqliLobStat.LastModificationTimeOffset);
+
+    private int StatInt32(int offset) => SqliLobStat.GetInt32(Session.LobStat(RequireOpen()), offset);
 
     /// <summary>The total size of the open smart LOB in bytes.</summary>
     public long Size => Session.LobSize(RequireOpen());

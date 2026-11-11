@@ -711,7 +711,7 @@ blob.SBSpace = "sbspace2";                 // optional create spec, see below
 blob.Open(IfxSmartLOBOpenMode.ReadWrite);  // ifx_lo_create; the new object is left open
 foreach (byte[] piece in pieces)
     blob.Write(piece);                     // or blob.FromFile(path, false, IfxSmartLOBFileLocation.Client),
-blob.Close();                              //    which opens -- and so creates -- the object itself
+blob.Close();                              //    which opens — and so creates — the object itself
 
 cmd.CommandText = "INSERT INTO docs (id, body) VALUES (?, ?)";
 cmd.Parameters.Add(new IfxParameter("id", 1));
@@ -775,6 +775,17 @@ After `Open()` the properties report the spec the object was actually created wi
 settings included; changing them then has no effect on it. On an object opened *by its
 locator* (a reader's `GetIfxBlob`) they report the defaults, not that object's real settings.
 
+**Status** — `ReferenceCount`, `LastAccessTime`, `LastModificationTime` and `LastChangeTime`
+ask the server (`ifx_lo_stat`) on every read, as in the classic provider, so the object must
+be open. The times are Unix seconds. Measured live:
+
+* `ReferenceCount` goes 0, 1, 2 as rows come to point at the object and drops again when one
+  of them is deleted. An object `Open()` created but no row stores reads 0.
+* `LastModificationTime` moves only when the contents are written.
+* `LastChangeTime` moves on a write and on every change of the reference count.
+* `LastAccessTime` moves on reads as well — on IDS 14.10 also without `KeepAccessTime`, so do
+  not rely on that flag to freeze it.
+
 > **Measured against `Informix.Net.Core` 4.0.2.0.** The lifecycle above is the classic one:
 > its `GetIfxBlob()` also returns a handle with `IsNull` true, `Write()` before `Open()` also
 > fails, and `Open()` is also what calls its internal `CreateSmartLOB`, which applies the
@@ -784,14 +795,55 @@ locator* (a reader's `GetIfxBlob`) they report the defaults, not that object's r
 > | | classic `Informix.Net.Core` | here |
 > |---|---|---|
 > | parameter value | `IfxSmartLOBLocator` only — its marshaller casts to it and calls `ToBytes()`; nothing converts an `IfxBlob` to its locator, and `locator.ToBytes()` is stored as content | `IfxSmartLOBLocator` as well, plus the object, the raw bytes and the hex text |
-> | `ReferenceCount`, `LastAccessTime`, `LastChangeTime`, `LastModificationTime` | read from the server's LOB status block | throw `NotSupportedException`, although the server reports them in the same `ifx_lo_stat` block used above |
-> | `IfxSmartLOBLocator.Length` | `static` (the fixed 72) | an instance property |
+> | `IfxSmartLOBLocator` constructors | accept bytes or text of any length | reject anything but the 72 bytes (or 144 hex digits) a locator is, with `ArgumentException` |
 >
-> Code written against the classic provider ports unchanged.
+> `IfxSmartLOBLocator.Length` is `static`, the fixed 72, as in the classic provider. Code written
+> against the classic provider ports unchanged.
 
 A LOB created by `Open()` but never bound into a row stays in the sbspace with nothing
-referencing it, the orphan §4.13 describes; inside a transaction that is rolled back it goes
-away with it.
+referencing it, the orphan §4.13 describes — `ReferenceCount` 0 is how to recognise one;
+inside a transaction that is rolled back it goes away with it.
+
+---
+
+### 4.19 Counting round trips — `RequestRoundTrips` and friends
+
+`IfxConnection` counts what goes over the wire, so you can measure what
+[msg_flow.md](msg_flow.md) describes on your own code: whether `Prepare()` or the
+prepared-statement cache pays off, what a bigger `Fetch Buffer Size` saves, whether a loop
+should become an `IfxBatch`. The classic providers have nothing like it; the nearest
+equivalent is SqlClient's `RetrieveStatistics()`/`ResetStatistics()` with its
+`ServerRoundtrips` entry.
+
+| Member | Counts | Kept per |
+|---|---|---|
+| `RequestRoundTrips` | request PDUs flushed to the server — each is one client→server→client round trip | physical connection |
+| `FetchMessagesSent` | `SQ_NFETCH` messages: a cursor's first fetch and every refill. Fewer for the same scan is what a larger `Fetch Buffer Size` buys | SQLI session |
+| `PreparedStatementCacheHits` / `PreparedStatementCacheMisses` | lookups in the prepared-statement cache; both stay 0 while `Prepared Statement Cache Size` is 0 | SQLI session |
+| `ResetFetchStats()` | zeroes all four | |
+
+```csharp
+cn.ResetFetchStats();
+foreach (string code in codes) { p.Value = code; cmd.ExecuteScalar(); }
+Console.WriteLine($"{cn.RequestRoundTrips} round trips, " +
+                  $"cache {cn.PreparedStatementCacheHits} hits / {cn.PreparedStatementCacheMisses} misses");
+```
+
+Measure a difference — reset right before the code you are looking at — because the counts
+cover everything, not only your commands. Measured live:
+
+* **They include the driver's own traffic.** A freshly opened connection already shows 3
+  round trips (the session bring-up), 4 with an `Isolation Level` keyword (its
+  `SET ISOLATION`); smart-LOB calls, `GetSchema` queries and the statements behind read-only
+  transactions count as well.
+* **They belong to the physical connection, not to the `IfxConnection` object.** A closed
+  connection reads 0. With pooling on, the counts survive `Close()`/`Open()` — and a
+  *different* `IfxConnection` instance that gets the same pooled connection sees them too.
+  `Open()` does not reset them.
+
+They are a tool for tests and tuning; for production monitoring use the OpenTelemetry
+metrics of §4.7. The demo programs `NamedParameters`, `Unload`, `Cursors`, `GeneratedKeys` and
+`ReadOnlyAccess` in `Informix.demo/02-native` use them to show what each feature saves.
 
 ---
 

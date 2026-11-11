@@ -95,10 +95,10 @@ public class ApiShapeGuardTests
             const BindingFlags Pub = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
             foreach (var line in
                 t.GetConstructors(Pub).Select(c => $".ctor({Params(c.GetParameters())})")
-                .Concat(t.GetProperties(Pub).Select(p => $"prop {p.PropertyType.Name} {p.Name}{(p.CanRead ? " get" : "")}{(p.CanWrite ? " set" : "")}"))
-                .Concat(t.GetMethods(Pub).Where(m => !m.IsSpecialName).Select(m => $"{m.ReturnType.Name} {m.Name}({Params(m.GetParameters())})"))
-                .Concat(t.GetEvents(Pub).Select(e => $"event {e.EventHandlerType?.Name} {e.Name}"))
-                .Concat(t.GetFields(Pub).Select(f => $"field {f.FieldType.Name} {f.Name}"))
+                .Concat(t.GetProperties(Pub).Select(p => $"{Static((p.GetMethod ?? p.SetMethod)!.IsStatic)}prop {p.PropertyType.Name} {p.Name}{(p.CanRead ? " get" : "")}{(p.CanWrite ? " set" : "")}"))
+                .Concat(t.GetMethods(Pub).Where(m => !m.IsSpecialName).Select(m => $"{Static(m.IsStatic)}{m.ReturnType.Name} {m.Name}({Params(m.GetParameters())})"))
+                .Concat(t.GetEvents(Pub).Select(e => $"{Static(e.AddMethod!.IsStatic)}event {e.EventHandlerType?.Name} {e.Name}"))
+                .Concat(t.GetFields(Pub).Select(f => $"{(f.IsLiteral ? "const " : Static(f.IsStatic))}field {f.FieldType.Name} {f.Name}"))
                 .OrderBy(s => s, StringComparer.Ordinal))
             {
                 sb.Append("  ").Append(line).Append('\n');
@@ -106,6 +106,10 @@ public class ApiShapeGuardTests
         }
         return sb.ToString();
     }
+
+    // Static vs instance is part of the shape: turning one into the other breaks every caller at
+    // compile time (CS0176 / CS0120), so the snapshot has to show it.
+    private static string Static(bool isStatic) => isStatic ? "static " : "";
 
     private static string Params(ParameterInfo[] ps) => string.Join(", ", ps.Select(p => p.ParameterType.Name));
 

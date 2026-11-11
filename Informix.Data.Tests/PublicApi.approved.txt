@@ -1,7 +1,7 @@
 static class Informix.Data.BsonMediaTypeFormatter []
-  Byte[] ToBson(String)
-  JsonDocument ToJsonDocument(ReadOnlySpan`1)
-  String ToJson(ReadOnlySpan`1, Boolean)
+  static Byte[] ToBson(String)
+  static JsonDocument ToJsonDocument(ReadOnlySpan`1)
+  static String ToJson(ReadOnlySpan`1, Boolean)
 interface Informix.Data.IIfxPamHandler []
   IfxPamResponse Respond(IfxPamChallenge)
 enum Informix.Data.IfxAuthentication
@@ -61,7 +61,7 @@ sealed class Informix.Data.IfxBlob : Informix.Data.IfxSmartLOB [INullable]
   Int64 Read(Byte[], Int64, Int64, Int64, IfxSmartLOBWhence)
   Int64 Write(Byte[])
   Int64 Write(Byte[], Int64, Int64, Int64, IfxSmartLOBWhence)
-  field IfxBlob Null
+  static field IfxBlob Null
 sealed class Informix.Data.IfxBulkLoader [IDisposable,ISqliTransactionAwareStatement]
   Int64 Complete()
   Int64 Execute(Action`1)
@@ -97,8 +97,8 @@ sealed class Informix.Data.IfxClob : Informix.Data.IfxSmartLOB [INullable]
   String ToFile(String, FileMode, IfxSmartLOBFileLocation, Encoding)
   Void FromFile(String, Boolean, IfxSmartLOBFileLocation)
   Void FromFile(String, Boolean, IfxSmartLOBFileLocation, Encoding)
-  field Encoding DefaultFileEncoding
-  field IfxClob Null
+  static field Encoding DefaultFileEncoding
+  static field IfxClob Null
 sealed class Informix.Data.IfxCommand : System.Data.Common.DbCommand [IAsyncDisposable,ICloneable,IComponent,IDbCommand,IDisposable]
   .ctor()
   .ctor(String)
@@ -163,8 +163,6 @@ sealed class Informix.Data.IfxConnection : System.Data.Common.DbConnection [IAsy
   IfxTransaction BeginTransaction(IsolationLevel)
   IfxTransaction BeginTransaction(IsolationLevel, Boolean)
   Void ChangeDatabase(String)
-  Void ClearAllPools()
-  Void ClearPool(IfxConnection)
   Void Close()
   Void EnlistTransaction(Transaction)
   Void Open()
@@ -190,6 +188,8 @@ sealed class Informix.Data.IfxConnection : System.Data.Common.DbConnection [IAsy
   prop String Database get
   prop String ServerType get
   prop String ServerVersion get
+  static Void ClearAllPools()
+  static Void ClearPool(IfxConnection)
 sealed class Informix.Data.IfxConnectionStringBuilder : System.Data.Common.DbConnectionStringBuilder [ICollection,ICustomTypeDescriptor,IDictionary,IEnumerable]
   .ctor()
   .ctor(String)
@@ -292,12 +292,12 @@ sealed class Informix.Data.IfxDataReader : System.Data.Common.DbDataReader [IAsy
 sealed class Informix.Data.IfxDataSource : System.Data.Common.DbDataSource [IAsyncDisposable,IDisposable]
   IfxConnection CreateConnection()
   IfxConnection OpenConnection()
-  IfxDataSource Create(IfxConnectionStringBuilder)
-  IfxDataSource Create(String)
   Void Clear()
   prop String ConnectionString get
   prop String Name get
   prop ValueTuple`3 Statistics get
+  static IfxDataSource Create(IfxConnectionStringBuilder)
+  static IfxDataSource Create(String)
 sealed class Informix.Data.IfxDataSourceBuilder []
   .ctor(String)
   IfxDataSource Build()
@@ -311,7 +311,7 @@ sealed class Informix.Data.IfxDataSourceBuilder []
   prop String Name get set
 sealed class Informix.Data.IfxDataSourceEnumerator : System.Data.Common.DbDataSourceEnumerator []
   DataTable GetDataSources()
-  field IfxDataSourceEnumerator Instance
+  static field IfxDataSourceEnumerator Instance
 struct Informix.Data.IfxDateTime : System.ValueType [IComparable,IComparable`1,IEquatable`1,INullable]
   .ctor(DateTime)
   .ctor(Int32, IfxTimeUnit)
@@ -323,13 +323,7 @@ struct Informix.Data.IfxDateTime : System.ValueType [IComparable,IComparable`1,I
   .ctor(Int32, Int32, Int32, Int32, Int32, Int32, Int32, IfxTimeUnit)
   .ctor(Int64)
   Boolean Equals(IfxDateTime)
-  Boolean Equals(IfxDateTime, IfxDateTime)
   Boolean Equals(Object)
-  Boolean GreaterThan(IfxDateTime, IfxDateTime)
-  Boolean GreaterThanOrEqual(IfxDateTime, IfxDateTime)
-  Boolean LessThan(IfxDateTime, IfxDateTime)
-  Boolean LessThanOrEqual(IfxDateTime, IfxDateTime)
-  Boolean NotEquals(IfxDateTime, IfxDateTime)
   IfxDateTime Add(IfxMonthSpan)
   IfxDateTime Add(IfxTimeSpan)
   IfxDateTime AddDays(Double)
@@ -340,23 +334,15 @@ struct Informix.Data.IfxDateTime : System.ValueType [IComparable,IComparable`1,I
   IfxDateTime AddSeconds(Double)
   IfxDateTime AddTicks(Int64)
   IfxDateTime AddYears(Int32)
-  IfxDateTime Parse(String)
-  IfxDateTime Parse(String, IfxTimeUnit, IfxTimeUnit)
-  IfxDateTime Parse(String, String, IfxTimeUnit, IfxTimeUnit)
   IfxDateTime Subtract(IfxMonthSpan)
   IfxDateTime Subtract(IfxTimeSpan)
   IfxMonthSpan SubtractYearMonth(IfxDateTime)
   IfxTimeSpan Subtract(IfxDateTime)
-  Int32 Compare(IfxDateTime, IfxDateTime)
   Int32 CompareTo(IfxDateTime)
   Int32 CompareTo(Object)
-  Int32 DaysInMonth(Int32, Int32)
   Int32 GetHashCode()
   String ToString()
   String ToString(String)
-  field IfxDateTime MaxValue
-  field IfxDateTime MinValue
-  field IfxDateTime Null
   prop Boolean IsNull get
   prop IfxDateTime Date get
   prop IfxDateTime Now get
@@ -371,6 +357,20 @@ struct Informix.Data.IfxDateTime : System.ValueType [IComparable,IComparable`1,I
   prop Int32 Second get
   prop Int32 Year get
   prop Int64 Ticks get
+  static Boolean Equals(IfxDateTime, IfxDateTime)
+  static Boolean GreaterThan(IfxDateTime, IfxDateTime)
+  static Boolean GreaterThanOrEqual(IfxDateTime, IfxDateTime)
+  static Boolean LessThan(IfxDateTime, IfxDateTime)
+  static Boolean LessThanOrEqual(IfxDateTime, IfxDateTime)
+  static Boolean NotEquals(IfxDateTime, IfxDateTime)
+  static IfxDateTime Parse(String)
+  static IfxDateTime Parse(String, IfxTimeUnit, IfxTimeUnit)
+  static IfxDateTime Parse(String, String, IfxTimeUnit, IfxTimeUnit)
+  static Int32 Compare(IfxDateTime, IfxDateTime)
+  static Int32 DaysInMonth(Int32, Int32)
+  static field IfxDateTime MaxValue
+  static field IfxDateTime MinValue
+  static field IfxDateTime Null
 sealed class Informix.Data.IfxDbColumn : System.Data.Common.DbColumn []
   prop Boolean IsDistinct get
   prop Boolean IsOpaqueComplex get
@@ -386,48 +386,48 @@ struct Informix.Data.IfxDecimal : System.ValueType [IComparable,IComparable`1,IE
   .ctor(Int32)
   .ctor(Int64)
   Boolean Equals(IfxDecimal)
-  Boolean Equals(IfxDecimal, IfxDecimal)
   Boolean Equals(Object)
-  Boolean GreaterThan(IfxDecimal, IfxDecimal)
-  Boolean GreaterThanOrEqual(IfxDecimal, IfxDecimal)
-  Boolean LessThan(IfxDecimal, IfxDecimal)
-  Boolean LessThanOrEqual(IfxDecimal, IfxDecimal)
-  Boolean NotEquals(IfxDecimal, IfxDecimal)
-  IfxDecimal Abs(IfxDecimal)
-  IfxDecimal Add(IfxDecimal, IfxDecimal)
-  IfxDecimal Ceiling(IfxDecimal)
   IfxDecimal Clone()
-  IfxDecimal Divide(IfxDecimal, IfxDecimal)
-  IfxDecimal Floor(IfxDecimal)
-  IfxDecimal Max(IfxDecimal, IfxDecimal)
-  IfxDecimal Min(IfxDecimal, IfxDecimal)
-  IfxDecimal Modulo(IfxDecimal, IfxDecimal)
-  IfxDecimal Multiply(IfxDecimal, IfxDecimal)
-  IfxDecimal Negate(IfxDecimal)
-  IfxDecimal Parse(String)
-  IfxDecimal Remainder(IfxDecimal, IfxDecimal)
-  IfxDecimal Round(IfxDecimal, Int32)
-  IfxDecimal Subtract(IfxDecimal, IfxDecimal)
-  IfxDecimal Truncate(IfxDecimal, Int32)
-  Int32 Compare(IfxDecimal, IfxDecimal)
   Int32 CompareTo(IfxDecimal)
   Int32 CompareTo(Object)
   Int32 GetHashCode()
   String ToString()
   String ToString(String)
-  field Byte MaxPrecision
-  field IfxDecimal E
-  field IfxDecimal MaxValue
-  field IfxDecimal MinValue
-  field IfxDecimal MinusOne
-  field IfxDecimal Null
-  field IfxDecimal One
-  field IfxDecimal Pi
-  field IfxDecimal Zero
   prop Boolean IsFloating get
   prop Boolean IsNull get
   prop Boolean IsPositive get
   prop Decimal Value get
+  static Boolean Equals(IfxDecimal, IfxDecimal)
+  static Boolean GreaterThan(IfxDecimal, IfxDecimal)
+  static Boolean GreaterThanOrEqual(IfxDecimal, IfxDecimal)
+  static Boolean LessThan(IfxDecimal, IfxDecimal)
+  static Boolean LessThanOrEqual(IfxDecimal, IfxDecimal)
+  static Boolean NotEquals(IfxDecimal, IfxDecimal)
+  static IfxDecimal Abs(IfxDecimal)
+  static IfxDecimal Add(IfxDecimal, IfxDecimal)
+  static IfxDecimal Ceiling(IfxDecimal)
+  static IfxDecimal Divide(IfxDecimal, IfxDecimal)
+  static IfxDecimal Floor(IfxDecimal)
+  static IfxDecimal Max(IfxDecimal, IfxDecimal)
+  static IfxDecimal Min(IfxDecimal, IfxDecimal)
+  static IfxDecimal Modulo(IfxDecimal, IfxDecimal)
+  static IfxDecimal Multiply(IfxDecimal, IfxDecimal)
+  static IfxDecimal Negate(IfxDecimal)
+  static IfxDecimal Parse(String)
+  static IfxDecimal Remainder(IfxDecimal, IfxDecimal)
+  static IfxDecimal Round(IfxDecimal, Int32)
+  static IfxDecimal Subtract(IfxDecimal, IfxDecimal)
+  static IfxDecimal Truncate(IfxDecimal, Int32)
+  static Int32 Compare(IfxDecimal, IfxDecimal)
+  static field Byte MaxPrecision
+  static field IfxDecimal E
+  static field IfxDecimal MaxValue
+  static field IfxDecimal MinValue
+  static field IfxDecimal MinusOne
+  static field IfxDecimal Null
+  static field IfxDecimal One
+  static field IfxDecimal Pi
+  static field IfxDecimal Zero
 sealed class Informix.Data.IfxError []
   String ToString()
   prop Int32 NativeError get
@@ -441,24 +441,24 @@ sealed class Informix.Data.IfxErrorCollection [ICollection,IEnumerable]
   prop IfxError Item get
   prop Int32 Count get
 static class Informix.Data.IfxEventId []
-  field Int32 ClosedConnection
-  field Int32 ClosedPhysicalConnection
-  field Int32 ClosingConnection
-  field Int32 CommandCompleted
-  field Int32 CommandExecuting
-  field Int32 CommandFailed
-  field Int32 InfoMessageReceived
-  field Int32 OpenedConnection
-  field Int32 OpenedPhysicalConnection
-  field Int32 OpeningConnection
-  field Int32 ParameterValues
-  field Int32 PhysicalConnectionRetired
-  field Int32 PoolRentTimeout
-  field Int32 PoolWarmUpFailed
-  field Int32 SentOutOfBandCancel
-  field Int32 TransactionBegan
-  field Int32 TransactionCommitted
-  field Int32 TransactionRolledBack
+  const field Int32 ClosedConnection
+  const field Int32 ClosedPhysicalConnection
+  const field Int32 ClosingConnection
+  const field Int32 CommandCompleted
+  const field Int32 CommandExecuting
+  const field Int32 CommandFailed
+  const field Int32 InfoMessageReceived
+  const field Int32 OpenedConnection
+  const field Int32 OpenedPhysicalConnection
+  const field Int32 OpeningConnection
+  const field Int32 ParameterValues
+  const field Int32 PhysicalConnectionRetired
+  const field Int32 PoolRentTimeout
+  const field Int32 PoolWarmUpFailed
+  const field Int32 SentOutOfBandCancel
+  const field Int32 TransactionBegan
+  const field Int32 TransactionCommitted
+  const field Int32 TransactionRolledBack
 class Informix.Data.IfxException : System.Data.Common.DbException [ISerializable]
   .ctor(String, Int32, Int32, String, Exception)
   prop Boolean IsTransient get
@@ -472,44 +472,44 @@ sealed class Informix.Data.IfxInfoMessageEventArgs : System.EventArgs []
   prop IfxErrorCollection Errors get
   prop String Message get
 sealed class Informix.Data.IfxLoggingConfiguration []
-  Void InitializeLogging(ILoggerFactory, Boolean)
+  static Void InitializeLogging(ILoggerFactory, Boolean)
 struct Informix.Data.IfxMonthSpan : System.ValueType [IComparable,IComparable`1,IEquatable`1,INullable]
   .ctor(Int32, IfxTimeUnit)
   .ctor(Int32, Int64)
   Boolean Equals(IfxMonthSpan)
-  Boolean Equals(IfxMonthSpan, IfxMonthSpan)
   Boolean Equals(Object)
-  Boolean GreaterThan(IfxMonthSpan, IfxMonthSpan)
-  Boolean GreaterThanOrEqual(IfxMonthSpan, IfxMonthSpan)
-  Boolean LessThan(IfxMonthSpan, IfxMonthSpan)
-  Boolean LessThanOrEqual(IfxMonthSpan, IfxMonthSpan)
-  Boolean NotEquals(IfxMonthSpan, IfxMonthSpan)
   Decimal Divide(IfxMonthSpan)
   IfxMonthSpan Add(IfxMonthSpan)
   IfxMonthSpan Divide(Decimal)
   IfxMonthSpan Duration()
   IfxMonthSpan Multiply(Decimal)
   IfxMonthSpan Negate()
-  IfxMonthSpan Parse(String)
-  IfxMonthSpan Parse(String, IfxTimeUnit, IfxTimeUnit)
-  IfxMonthSpan Parse(String, String, IfxTimeUnit, IfxTimeUnit)
   IfxMonthSpan Subtract(IfxMonthSpan)
-  Int32 Compare(IfxMonthSpan, IfxMonthSpan)
   Int32 CompareTo(IfxMonthSpan)
   Int32 CompareTo(Object)
   Int32 GetHashCode()
   String ToString()
   String ToString(String)
-  field IfxMonthSpan MaxValue
-  field IfxMonthSpan MinValue
-  field IfxMonthSpan Null
-  field IfxMonthSpan Zero
   prop Boolean IsNull get
   prop IfxTimeUnit EndTimeUnit get
   prop IfxTimeUnit StartTimeUnit get
   prop Int32 Months get
   prop Int32 Years get
   prop Int64 TotalMonths get
+  static Boolean Equals(IfxMonthSpan, IfxMonthSpan)
+  static Boolean GreaterThan(IfxMonthSpan, IfxMonthSpan)
+  static Boolean GreaterThanOrEqual(IfxMonthSpan, IfxMonthSpan)
+  static Boolean LessThan(IfxMonthSpan, IfxMonthSpan)
+  static Boolean LessThanOrEqual(IfxMonthSpan, IfxMonthSpan)
+  static Boolean NotEquals(IfxMonthSpan, IfxMonthSpan)
+  static IfxMonthSpan Parse(String)
+  static IfxMonthSpan Parse(String, IfxTimeUnit, IfxTimeUnit)
+  static IfxMonthSpan Parse(String, String, IfxTimeUnit, IfxTimeUnit)
+  static Int32 Compare(IfxMonthSpan, IfxMonthSpan)
+  static field IfxMonthSpan MaxValue
+  static field IfxMonthSpan MinValue
+  static field IfxMonthSpan Null
+  static field IfxMonthSpan Zero
 sealed class Informix.Data.IfxPamChallenge []
   .ctor(String, PamMessageType)
   prop Boolean RequiresResponse get
@@ -517,10 +517,10 @@ sealed class Informix.Data.IfxPamChallenge []
   prop String Message get
 sealed class Informix.Data.IfxPamResponse []
   .ctor(String)
-  IfxPamResponse Terminate()
-  field Int32 MaxMessageSize
+  const field Int32 MaxMessageSize
   prop Boolean TerminateConnection get set
   prop String Response get set
+  static IfxPamResponse Terminate()
 sealed class Informix.Data.IfxParameter : System.Data.Common.DbParameter [ICloneable,IDataParameter,IDbDataParameter]
   .ctor()
   .ctor(String, IfxType)
@@ -697,7 +697,7 @@ class Informix.Data.IfxSmartLOBLocator []
   .ctor(String)
   Byte[] ToBytes()
   String ToString()
-  prop Int32 Length get
+  static prop Int32 Length get
 enum Informix.Data.IfxSmartLOBLockMode
   None = 0
   Shared = 1
@@ -718,46 +718,46 @@ enum Informix.Data.IfxSmartLOBWhence
   Current = 1
   End = 2
 static class Informix.Data.IfxTextConvert []
-  Boolean TryFormatBigInt(Nullable`1, Span`1, Int32&, Int32)
-  Boolean TryFormatDecimal(IfxDecimal, Span`1, Int32, IfxTextFormat)
-  Boolean TryFormatDecimal(ReadOnlySpan`1, Span`1, Int32, IfxTextFormat)
-  Boolean TryFormatInt8(Nullable`1, Span`1)
-  Boolean TryParseBigInt(ReadOnlySpan`1, Nullable`1&, IfxTextFormat)
-  Boolean TryParseDate(ReadOnlySpan`1, Nullable`1&, IfxTextFormat)
-  Boolean TryParseDateTime(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, IfxDateTime&, IfxTextFormat)
-  Boolean TryParseDayTimeInterval(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, IfxTimeSpan&, Int32)
-  Boolean TryParseDecimal(ReadOnlySpan`1, IfxDecimal&, IfxTextFormat)
-  Boolean TryParseInt32(ReadOnlySpan`1, Nullable`1&)
-  Boolean TryParseInt64(ReadOnlySpan`1, Nullable`1&)
-  Boolean TryParseYearMonthInterval(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, IfxMonthSpan&, Int32)
-  DateOnly FromInternalDate(Int32)
-  IfxDateTime ParseDateTime(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, IfxTextFormat)
-  IfxDecimal ParseDecimal(ReadOnlySpan`1, IfxTextFormat)
-  IfxMonthSpan ParseYearMonthInterval(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, Int32)
-  IfxTimeSpan ParseDayTimeInterval(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, Int32)
-  Int32 ToInternalDate(DateOnly)
-  Nullable`1 ParseBigInt(ReadOnlySpan`1, IfxTextFormat)
-  Nullable`1 ParseDate(ReadOnlySpan`1, IfxTextFormat)
-  Nullable`1 ParseInt32(ReadOnlySpan`1)
-  Nullable`1 ParseInt64(ReadOnlySpan`1)
-  String FormatBigInt(Nullable`1, Int32)
-  String FormatDate(DateOnly, IfxTextFormat)
-  String FormatDateTime(IfxDateTime, IfxTextFormat)
-  String FormatDecimal(IfxDecimal, Int32, IfxTextFormat)
-  String FormatDecimal(ReadOnlySpan`1, Int32, IfxTextFormat)
-  String FormatInterval(IfxMonthSpan)
-  String FormatInterval(IfxTimeSpan)
+  static Boolean TryFormatBigInt(Nullable`1, Span`1, Int32&, Int32)
+  static Boolean TryFormatDecimal(IfxDecimal, Span`1, Int32, IfxTextFormat)
+  static Boolean TryFormatDecimal(ReadOnlySpan`1, Span`1, Int32, IfxTextFormat)
+  static Boolean TryFormatInt8(Nullable`1, Span`1)
+  static Boolean TryParseBigInt(ReadOnlySpan`1, Nullable`1&, IfxTextFormat)
+  static Boolean TryParseDate(ReadOnlySpan`1, Nullable`1&, IfxTextFormat)
+  static Boolean TryParseDateTime(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, IfxDateTime&, IfxTextFormat)
+  static Boolean TryParseDayTimeInterval(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, IfxTimeSpan&, Int32)
+  static Boolean TryParseDecimal(ReadOnlySpan`1, IfxDecimal&, IfxTextFormat)
+  static Boolean TryParseInt32(ReadOnlySpan`1, Nullable`1&)
+  static Boolean TryParseInt64(ReadOnlySpan`1, Nullable`1&)
+  static Boolean TryParseYearMonthInterval(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, IfxMonthSpan&, Int32)
+  static DateOnly FromInternalDate(Int32)
+  static IfxDateTime ParseDateTime(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, IfxTextFormat)
+  static IfxDecimal ParseDecimal(ReadOnlySpan`1, IfxTextFormat)
+  static IfxMonthSpan ParseYearMonthInterval(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, Int32)
+  static IfxTimeSpan ParseDayTimeInterval(ReadOnlySpan`1, IfxTimeUnit, IfxTimeUnit, Int32)
+  static Int32 ToInternalDate(DateOnly)
+  static Nullable`1 ParseBigInt(ReadOnlySpan`1, IfxTextFormat)
+  static Nullable`1 ParseDate(ReadOnlySpan`1, IfxTextFormat)
+  static Nullable`1 ParseInt32(ReadOnlySpan`1)
+  static Nullable`1 ParseInt64(ReadOnlySpan`1)
+  static String FormatBigInt(Nullable`1, Int32)
+  static String FormatDate(DateOnly, IfxTextFormat)
+  static String FormatDateTime(IfxDateTime, IfxTextFormat)
+  static String FormatDecimal(IfxDecimal, Int32, IfxTextFormat)
+  static String FormatDecimal(ReadOnlySpan`1, Int32, IfxTextFormat)
+  static String FormatInterval(IfxMonthSpan)
+  static String FormatInterval(IfxTimeSpan)
 sealed class Informix.Data.IfxTextFormat []
   .ctor()
   prop Boolean StrictThousandsSeparator get set
   prop Char DecimalSeparator get set
   prop Char ThousandsSeparator get set
-  prop IfxTextFormat Default get
   prop Nullable`1 ReferenceDate get set
   prop String DbCentury get set
   prop String DbDate get set
   prop String GlDate get set
   prop String GlDateTime get set
+  static prop IfxTextFormat Default get
 struct Informix.Data.IfxTimeSpan : System.ValueType [IComparable,IComparable`1,IEquatable`1,INullable]
   .ctor(Decimal)
   .ctor(Int32, IfxTimeUnit)
@@ -768,34 +768,19 @@ struct Informix.Data.IfxTimeSpan : System.ValueType [IComparable,IComparable`1,I
   .ctor(Int64)
   .ctor(TimeSpan)
   Boolean Equals(IfxTimeSpan)
-  Boolean Equals(IfxTimeSpan, IfxTimeSpan)
   Boolean Equals(Object)
-  Boolean GreaterThan(IfxTimeSpan, IfxTimeSpan)
-  Boolean GreaterThanOrEqual(IfxTimeSpan, IfxTimeSpan)
-  Boolean LessThan(IfxTimeSpan, IfxTimeSpan)
-  Boolean LessThanOrEqual(IfxTimeSpan, IfxTimeSpan)
-  Boolean NotEquals(IfxTimeSpan, IfxTimeSpan)
   Decimal Divide(IfxTimeSpan)
   IfxTimeSpan Add(IfxTimeSpan)
   IfxTimeSpan Divide(Decimal)
   IfxTimeSpan Duration()
   IfxTimeSpan Multiply(Decimal)
   IfxTimeSpan Negate()
-  IfxTimeSpan Parse(String)
-  IfxTimeSpan Parse(String, IfxTimeUnit, IfxTimeUnit)
-  IfxTimeSpan Parse(String, String, IfxTimeUnit, IfxTimeUnit)
   IfxTimeSpan Subtract(IfxTimeSpan)
-  Int32 Compare(IfxTimeSpan, IfxTimeSpan)
   Int32 CompareTo(IfxTimeSpan)
   Int32 CompareTo(Object)
   Int32 GetHashCode()
   String ToString()
   String ToString(String)
-  field IfxTimeSpan MaxValue
-  field IfxTimeSpan MinValue
-  field IfxTimeSpan Null
-  field IfxTimeSpan Zero
-  field Int32 MaxScale
   prop Boolean IsNull get
   prop Decimal Ticks get
   prop IfxTimeUnit EndTimeUnit get
@@ -805,6 +790,21 @@ struct Informix.Data.IfxTimeSpan : System.ValueType [IComparable,IComparable`1,I
   prop Int32 Milliseconds get
   prop Int32 Minutes get
   prop Int32 Seconds get
+  static Boolean Equals(IfxTimeSpan, IfxTimeSpan)
+  static Boolean GreaterThan(IfxTimeSpan, IfxTimeSpan)
+  static Boolean GreaterThanOrEqual(IfxTimeSpan, IfxTimeSpan)
+  static Boolean LessThan(IfxTimeSpan, IfxTimeSpan)
+  static Boolean LessThanOrEqual(IfxTimeSpan, IfxTimeSpan)
+  static Boolean NotEquals(IfxTimeSpan, IfxTimeSpan)
+  static IfxTimeSpan Parse(String)
+  static IfxTimeSpan Parse(String, IfxTimeUnit, IfxTimeUnit)
+  static IfxTimeSpan Parse(String, String, IfxTimeUnit, IfxTimeUnit)
+  static Int32 Compare(IfxTimeSpan, IfxTimeSpan)
+  static field IfxTimeSpan MaxValue
+  static field IfxTimeSpan MinValue
+  static field IfxTimeSpan Null
+  static field IfxTimeSpan Zero
+  static field Int32 MaxScale
 enum Informix.Data.IfxTimeUnit
   Year = 0
   Month = 2
@@ -899,9 +899,9 @@ sealed class Informix.Data.InformixClientFactory : System.Data.Common.DbProvider
   DbDataSource CreateDataSource(String)
   DbDataSourceEnumerator CreateDataSourceEnumerator()
   DbParameter CreateParameter()
-  field InformixClientFactory Instance
   prop Boolean CanCreateBatch get
   prop Boolean CanCreateDataSourceEnumerator get
+  static field InformixClientFactory Instance
 enum Informix.Data.PamMessageType
   Unknown = 0
   PromptEchoOff = 1

@@ -1884,7 +1884,6 @@ internal sealed class SqliSession
     private const string LoStatSignature = "function informix.ifx_lo_stat(int, ifx_lo_stat)";
     private const string LoTruncateSignature = "function informix.ifx_lo_truncate(integer,int8)";
 
-    internal const int LoLocatorSize = 72;   // sizeof(ifx_lo_t) on a long-ID server
     private const int LoStatSize = 644;      // IfxSmartBlob.LO_STAT_SIZE (isLongID)
     private const int LoRdOnly = 4;          // IfxSmartBlob.LO_RDONLY
     private const int LoRdWr = 8;            // IfxSmartBlob.LO_RDWR
@@ -2166,7 +2165,7 @@ internal sealed class SqliSession
         var created = ExecuteFastPath(LoCreateSignature,
             SqliBindValue.Udt("ifx_lo_spec", spec),
             SqliBindValue.From(LoRdWr, _out.DbEncoding),
-            SqliBindValue.Udt("blob", new byte[LoLocatorSize]));
+            SqliBindValue.Udt("blob", new byte[IfxSmartLOBLocator.Length]));
         byte[] locator = created[0] as byte[]
             ?? throw new IfxException("ifx_lo_create did not return a locator (-408).", -408);
         int fd = Convert.ToInt32(created[1]);
@@ -2217,14 +2216,14 @@ internal sealed class SqliSession
         var created = ExecuteFastPath(LoCreateSignature,
             SqliBindValue.Udt("ifx_lo_spec", spec),
             SqliBindValue.From(mode == 0 ? LoRdWr : mode, _out.DbEncoding),
-            SqliBindValue.Udt("blob", new byte[LoLocatorSize]));
+            SqliBindValue.Udt("blob", new byte[IfxSmartLOBLocator.Length]));
         byte[] locator = created[0] as byte[]
             ?? throw new IfxException("ifx_lo_create did not return a locator (-408).", -408);
         return (Convert.ToInt32(created[1]), locator);
     }
 
     /// <summary>The size in bytes of the open smart LOB (from IFX_LO_STAT).</summary>
-    internal long LobSize(int fd) => ReadUdtLong(LobStat(fd).AsSpan(4));
+    internal long LobSize(int fd) => SqliLobStat.GetSize(LobStat(fd));
 
     /// <summary>
     /// The raw IFX_LO_STAT block of the open smart LOB (JDBC <c>IfxLoStat</c>, 644 bytes on a

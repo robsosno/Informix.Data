@@ -158,10 +158,6 @@ internal static class IfxParameterBinder
             p.Value, session.DbEncoding, IfxTypeMap.ToWire(p.IfxType), session.Capabilities.IsLongRowId);
     }
 
-    // The 72-byte ifx_lo_t. Only used to reject an obviously wrong value early -- a bind of the
-    // wrong length would otherwise reach the server as a malformed opaque value.
-    private const int SmartLobLocatorSize = 72;
-
     /// <summary>
     /// Binds a smart large object the caller already created, rather than creating a new one
     /// from a payload. Returns false when the value is not one of the locator-carrying shapes,
@@ -197,47 +193,31 @@ internal static class IfxParameterBinder
             case IfxSmartLOB { IsPendingCreate: true }:
                 throw new InvalidOperationException(IfxSmartLOB.NotCreatedYet);
 
-            // IfxBlob.Null / IfxClob.Null: a typed NULL.
+            // IfxBlob.Null / IfxClob.Null: a typed NULL. Any other object's locator came from the
+            // server or from an IfxSmartLOBLocator, so it has the right length already.
             case IfxSmartLOB lob:
-                bind = SqliBindValue.SmartBlobLocator(Checked(lob.LocatorForBind), lob.IsClobObject);
+                bind = SqliBindValue.SmartBlobLocator(lob.LocatorForBind, lob.IsClobObject);
                 return true;
 
+            // Its constructor checked the length.
             case IfxSmartLOBLocator locator:
-                bind = SqliBindValue.SmartBlobLocator(Checked(locator.ToBytes()), typeSaysClob);
+                bind = SqliBindValue.SmartBlobLocator(locator.Raw, typeSaysClob);
                 return true;
 
             // Bare locator bytes / the hex text GetLocator().ToString() produces. Accepted only
             // under IfxType.SmartLOBLocator, where a byte[] or string cannot mean "the content"
-            // the way it does for IfxType.Clob/Blob.
+            // the way it does for IfxType.Clob/Blob. Going through IfxSmartLOBLocator is what
+            // rejects a wrong length or a malformed hex text, before anything is sent.
             case byte[] raw when p.IfxType == IfxType.SmartLOBLocator:
-                bind = SqliBindValue.SmartBlobLocator(Checked(raw), isClob: false);
+                bind = SqliBindValue.SmartBlobLocator(new IfxSmartLOBLocator(raw).Raw, isClob: false);
                 return true;
 
             case string hex when p.IfxType == IfxType.SmartLOBLocator:
-                bind = SqliBindValue.SmartBlobLocator(Checked(ParseHexLocator(hex)), isClob: false);
+                bind = SqliBindValue.SmartBlobLocator(new IfxSmartLOBLocator(hex).Raw, isClob: false);
                 return true;
 
             default:
                 return false;
-        }
-
-        static byte[]? Checked(byte[]? locator) =>
-            locator is null || locator.Length == SmartLobLocatorSize ? locator
-                : throw new ArgumentException(
-                    $"A smart-large-object locator is {SmartLobLocatorSize} bytes; got {locator.Length}.");
-    }
-
-    private static byte[] ParseHexLocator(string hex)
-    {
-        try
-        {
-            return new IfxSmartLOBLocator(hex).ToBytes();
-        }
-        catch (FormatException e)
-        {
-            throw new ArgumentException(
-                "An IfxType.SmartLOBLocator string parameter must be the locator's hex text "
-                + "(IfxSmartLOBLocator.ToString()).", nameof(hex), e);
         }
     }
 

@@ -7,6 +7,9 @@ How each execution API of the driver travels on the wire, compared: a plain
 [wire-protocol.md](wire-protocol.md) (framing, encodings, traps) — this file
 is only about *which messages, in which round trips*.
 
+To count these round trips on your own code, use `IfxConnection.RequestRoundTrips` and its
+siblings — [migration-guide.md](migration-guide.md) §4.19.
+
 Source references name the method rather than a line number, which rots: the
 flows live in [SqliSession.cs](../Informix.Data/Sqli/SqliSession.cs),
 [IfxCommand.cs](../Informix.Data/Ado/IfxCommand.cs),

@@ -334,7 +334,7 @@ public sealed class IfxDataReader : DbDataReader, IDbColumnSchemaGenerator
             byte[]? locator = Cursor(ordinal).GetSmartLobLocator(ordinal);
             if (locator is null)
                 throw NullColumnCast(ordinal, "GetTextReader"); // SQL NULL CLOB
-            var clob = new IfxBlob(RequireConnection(), new IfxSmartLOBLocator(locator));
+            var clob = new IfxClob(RequireConnection(), new IfxSmartLOBLocator(locator));
             var stream = TrackLobStream(new IfxLobStream(clob));
             return new StreamReader(stream, RequireConnection().DbEncoding,
                 detectEncodingFromByteOrderMarks: false, leaveOpen: false);

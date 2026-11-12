@@ -367,6 +367,32 @@ public class SqliPrepareDescribeTests
     }
 
     [Fact]
+    public void Prepare_reads_the_classic_describe_when_the_server_sets_the_large_row_bits_unasked()
+    {
+        // The Informix 15.0.1.0 case: both ninth-byte bits come back although the client
+        // sent the eight-byte vector, and the frames stay in the classic shape (2-byte
+        // tuple size, 4-byte SQ_DONE counts). The prepare must parse them as such.
+        byte[] reply = SqliStatementKit.Join(
+            SqliStatementKit.DescribeFrame(
+                (short)SqliStatementType.Select, stmtId: 7, tupleSize: 4,
+                new SqliStatementKit.Col("id", (short)SqliTypeCode.Int, 4, 0)),
+            SqliStatementKit.DoneFrame(),
+            SqliStatementKit.EotFrame());
+        byte[] bringUp = SqliTestKit.ProtocolsReply(SqliTestKit.LargeRowGrantVector)
+            .Concat(SqliTestKit.VersionReply("15.0.1.0"))
+            .ToArray();
+
+        var session = SqliTestKit.SessionOver(bringUp.Concat(reply).ToArray(), out _);
+        session.BringUp();
+
+        session.Prepare("select id from t");
+
+        Assert.Equal(4, session.TupleSize);
+        Assert.Single(session.Columns);
+        Assert.Equal("id", session.Columns[0].Name);
+    }
+
+    [Fact]
     public void Prepare_of_a_non_query_reports_no_result_set()
     {
         byte[] reply = SqliStatementKit.Join(

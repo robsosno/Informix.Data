@@ -360,8 +360,8 @@ public sealed class IfxConnectionStringBuilder : DbConnectionStringBuilder
     ///
     /// <para>Only a request — the formats actually used follow the server's reply, so
     /// enabling it against a server that does not offer them changes nothing. Requires
-    /// Informix 15 or later; this driver's implementation has not been exercised against
-    /// a live server that grants the bits.</para>
+    /// Informix 15 or later. Without it the classic formats are used on every server
+    /// version, even when an Informix 15 server advertises the wide ones unasked.</para>
     /// </summary>
     public bool LargeRowFormats
     {

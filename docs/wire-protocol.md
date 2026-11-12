@@ -206,6 +206,14 @@ Immediately after the ASF accept, in this exact order
 (what JDBC 15.0.1.3 sends), the extra byte asking for bits 69 and 70 below. The server
 replies with its own vector in the same shape.
 
+> **Trap (bits 69/70 are negotiated, not announced).** Informix 15.0.1.0 sets bits 69
+> and 70 in its reply even when the client sent the 8-byte vector — and then keeps the
+> classic layouts for that client. Taking the reply at face value reads an int32 tuple
+> size out of an int16 field: login succeeds, and the first SQ_DESCRIBE blocks until the
+> socket times out. The two bits therefore count only when the client asked for them
+> (`ApplyServerProtocol(vector, largeRowFormatsRequested)`); 14.10 and older never set
+> them, so nothing changes there.
+
 **PAM** (`AuthenticatePam`, port of `handlePAMAuthentication`) is a challenge/response
 loop on the SQLI stream:
 
@@ -249,8 +257,8 @@ The bits that change on-wire layouts:
 | 54 | `IsBigIntSupported` | BIGINT/BIGSERIAL exist; SQ_INSERTDONE carries a trailing BIGSERIAL (**not** bit 52 — the two are easy to conflate) |
 | 62 | `IsRemove64KLimitSupported` | **statement text gets a 4-byte length prefix**; SQ_ERR offset is int32 |
 | 63 | `Is2GBFetchBufferSupported` | fetch-buffer size is int32 (else int16) |
-| 69 | `IsLargeTupleSize` | the tuple size in SQ_DESCRIBE / SQ_PREPARE is int32 (rows over 32 KB). Informix 15; granted only when the client asked via the 9-byte vector |
-| 70 | `IsLongRowId` | row ids and SQ_DONE / SQ_PUTERR row counts are 8 bytes; the in-tuple BYTE/TEXT descriptor grows from 56 to 68 bytes (`tb_size` moves from offset 16 to 32). Informix 15; opt-in as above, not yet exercised against a server that grants it |
+| 69 | `IsLargeTupleSize` | the tuple size in SQ_DESCRIBE / SQ_PREPARE is int32 (rows over 32 KB). Informix 15; in effect only when the client asked via the 9-byte vector — the server sets the bit either way (see the trap in §4) |
+| 70 | `IsLongRowId` | row ids and SQ_DONE / SQ_PUTERR row counts are 8 bytes; the in-tuple BYTE/TEXT descriptor grows from 56 to 68 bytes (`tb_size` moves from offset 16 to 32). Informix 15; opt-in as above. Live against 15.0.1.0 a plain query round-trips with it on; the BYTE/TEXT descriptor path is not yet exercised |
 
 A real 9.59 server announces 4-byte offsets, remove-64K, 2-GB fetch, fetch-array and
 var-length VARCHAR via the vector — the version ladder alone claims none of them.

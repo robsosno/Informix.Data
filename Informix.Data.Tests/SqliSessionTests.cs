@@ -179,6 +179,26 @@ public class SqliVersionTests
     }
 
     [Fact]
+    public void Ninth_bits_the_client_did_not_ask_for_are_ignored()
+    {
+        // Informix 15.0.1.0 sets 0x04 | 0x02 in its reply even to the eight-byte request
+        // and then keeps the classic layouts. Honouring the bits would read a 4-byte
+        // tuple size out of a 2-byte field and hang in the describe.
+        byte[] script = SqliTestKit.ProtocolsReply(SqliTestKit.LargeRowGrantVector)
+            .Concat(SqliTestKit.VersionReply("15.0.1.0"))
+            .ToArray();
+        var session = SqliTestKit.SessionOver(script, out _);
+
+        session.BringUp();
+
+        Assert.False(session.Capabilities.IsLargeTupleSize);
+        Assert.False(session.Capabilities.IsLongRowId);
+        // Only the two large-row bits are dropped; the rest of the reply still applies.
+        Assert.True(session.Capabilities.Is4ByteOffsetSupported);
+        Assert.True(session.Capabilities.IsExtendedDescriptor);
+    }
+
+    [Fact]
     public void Done_reply_widens_counts_but_not_the_serial_under_long_rowid()
     {
         // Values above int range prove the 8-byte reads, while the serial must still be

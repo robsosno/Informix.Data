@@ -273,8 +273,9 @@ internal sealed class SqliSession
     ///
     /// <para>Must be set before <see cref="BringUp"/>. Enabling it is only a
     /// request: the negotiated formats follow the server's reply, so a server that
-    /// does not grant the bits leaves every frame unchanged. The reply-side
-    /// handling is always active and does not depend on this flag.</para>
+    /// does not grant the bits leaves every frame unchanged. Without the request
+    /// the large-row bits in the server's reply are ignored — Informix 15.0.1.0
+    /// sets them unasked while still sending the classic layouts.</para>
     /// </summary>
     public bool RequestLargeRowFormats
     {
@@ -437,7 +438,7 @@ internal sealed class SqliSession
             AuthenticatePam(pamHandler);
         ExecuteVersion();
         Capabilities.ApplyVersionString(ServerVersion);
-        Capabilities.ApplyServerProtocol(ServerProtocol);
+        Capabilities.ApplyServerProtocol(ServerProtocol, RequestLargeRowFormats);
     }
 
     /// <summary>Exchanges the client/server protocol-capability vectors (port of <c>executeProtocols</c>).</summary>

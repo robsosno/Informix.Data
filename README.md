@@ -96,7 +96,7 @@ Not yet. I do not use it on a production system myself, and testing it
 properly takes more time than I can give a hobby project. There are things
 you must be aware of:
 
-- I verified the driver against the two servers I have (IDS 14.10.FC5, ); the
+- I verified the driver against the two servers I have (IDS 14.10.FC5, 15.0.1.0DE); the
   commercial product runs on many platforms, and versions I cannot possibly
   test;
 - the protocol contains various magic flags whose purpose is unknown to me, so

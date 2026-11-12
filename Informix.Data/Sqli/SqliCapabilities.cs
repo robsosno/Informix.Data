@@ -82,8 +82,10 @@ internal sealed class SqliCapabilities
     /// <summary>
     /// The tuple size in SQ_DESCRIBE / SQ_PREPARE is a 4-byte int rather than a
     /// short, lifting the 32 KB row limit (<c>isLargeTupleSize</c>, protocol byte 9
-    /// bit 0x04 — Informix 15). The server only announces this when the client asked
-    /// for it via the ninth request byte, so it stays clear on older negotiations.
+    /// bit 0x04 — Informix 15). In effect only when the client asked for it via the
+    /// ninth request byte <em>and</em> the server set it in its reply; a server may
+    /// set the bit unasked (15.0.1.0 does), which <see cref="ApplyServerProtocol"/>
+    /// discards.
     /// </summary>
     public bool IsLargeTupleSize => _bits[BitLargeTupleSize];
 
@@ -139,14 +141,28 @@ internal sealed class SqliCapabilities
     /// byte <c>i</c> maps MSB-first onto bits <c>8i..8i+7</c>. Bytes past the
     /// ninth are ignored. Must run after <see cref="ApplyVersionString"/>,
     /// which resets the vector.
+    ///
+    /// <para>The two large-row bits (69, 70) are negotiated, not announced: they
+    /// count only when <paramref name="largeRowFormatsRequested"/> says the client
+    /// asked for them with the ninth request byte. Informix 15.0.1.0 sets both in
+    /// its reply even to a client that sent the eight-byte vector, and then keeps
+    /// the classic frame layouts for that client — taking the bits at face value
+    /// reads a 4-byte tuple size where the server sent two bytes and the describe
+    /// never completes.</para>
     /// </summary>
-    public void ApplyServerProtocol(ReadOnlySpan<byte> serverProtocol)
+    public void ApplyServerProtocol(ReadOnlySpan<byte> serverProtocol, bool largeRowFormatsRequested)
     {
         int count = Math.Min(serverProtocol.Length, 9);
         for (int i = 0; i < count; i++)
             for (int j = 0; j < 8; j++)
                 if ((serverProtocol[i] & (0x80 >> j)) != 0)
                     _bits[8 * i + j] = true;
+
+        if (!largeRowFormatsRequested)
+        {
+            _bits[BitLargeTupleSize] = false;
+            _bits[BitLongRowId] = false;
+        }
     }
 
     private void Set(params int[] bits)

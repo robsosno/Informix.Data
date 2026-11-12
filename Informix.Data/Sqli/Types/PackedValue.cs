@@ -611,7 +611,6 @@ internal sealed class PackedValue
         short qual = interval.Qualifier;
         byte start = IfxQualifier.GetStartCode(qual);
         byte end = IfxQualifier.GetEndCode(qual);
-        int lfprec = IfxQualifier.GetLeadingFieldWidth(qual);
 
         long secs = interval.Seconds;
         long nans = interval.NanoSeconds;
@@ -621,6 +620,21 @@ internal sealed class PackedValue
             secs = -secs;
             nans = -nans;
         }
+
+        // The leading field holds everything above it (a DAY TO SECOND interval's days, an
+        // HOUR TO MINUTE one's hours, ...), so it must be wide enough for the value. The default
+        // qualifier a TimeSpan binds with is DAY(2): 100 days or more would not fit its one
+        // base-100 digit and would go out as a byte above 99 -- not a digit at all.
+        long leading = start switch
+        {
+            4 => secs / 86400,
+            6 => secs / 3600,
+            8 => secs / 60,
+            10 => secs,
+            _ => 0,
+        };
+        qual = WidenLeadingField(qual, leading);
+        int lfprec = IfxQualifier.GetLeadingFieldWidth(qual);
 
         if (start == 12)
             start = 11;
@@ -694,7 +708,6 @@ internal sealed class PackedValue
         short qual = interval.Qualifier;
         byte start = IfxQualifier.GetStartCode(qual);
         byte end = IfxQualifier.GetEndCode(qual);
-        int lfprec = IfxQualifier.GetLeadingFieldWidth(qual);
 
         long months = interval.Months;
         if (months < 0)
@@ -702,6 +715,11 @@ internal sealed class PackedValue
             sign = true;
             months = -months;
         }
+
+        // As for the day-time form: the leading field (years, or months for MONTH TO MONTH)
+        // must be wide enough for the value it carries.
+        qual = WidenLeadingField(qual, start == 2 ? months : months / 12);
+        int lfprec = IfxQualifier.GetLeadingFieldWidth(qual);
 
         if (start == 2)
         {
@@ -716,6 +734,24 @@ internal sealed class PackedValue
         }
 
         return FromIntervalDigits(sign, b, idx, qual);
+    }
+
+    // Returns <paramref name="qual"/> with its leading-field precision raised to the number of
+    // decimal digits <paramref name="leading"/> needs, or unchanged when it already fits. The
+    // start and end units stay as they are. The server then checks the value against the target
+    // column's own precision, as it does for any interval.
+    private static short WidenLeadingField(short qual, long leading)
+    {
+        int needed = 1;
+        for (long v = leading; v >= 10; v /= 10)
+            needed++;
+        if (needed <= IfxQualifier.GetLeadingFieldWidth(qual))
+            return qual;
+        if (needed > 9)
+            throw new OverflowException(
+                $"An interval whose leading field is {leading} needs {needed} digits; Informix allows at most 9.");
+        return IfxQualifier.ForInterval(
+            needed, (IfxTimeUnit)IfxQualifier.GetStartCode(qual), (IfxTimeUnit)IfxQualifier.GetEndCode(qual));
     }
 
     // The leading field spans lfprec decimal digits; split it into centesimal

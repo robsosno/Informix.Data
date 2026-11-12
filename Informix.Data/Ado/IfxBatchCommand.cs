@@ -107,8 +107,14 @@ public sealed class IfxBatchCommand : DbBatchCommand
     // Prepare() must not trigger. Mirrors IfxCommand.CountInputParameters.
     internal int CountInputParameters()
     {
-        if (CommandType == CommandType.Text && ParsedCommand.IsNamed)
-            return ParsedCommand.ParameterNames.Count;
+        if (CommandType == CommandType.Text)
+        {
+            if (ParsedCommand.IsNamed)
+                return ParsedCommand.ParameterNames.Count;
+            // Caller-written '?' placeholders: every parameter backs one, whatever its direction
+            // (bar the "{? = call}" escape's leading '?') -- the count BuildBinds will produce.
+            return ParsedCommand.HasReturnValuePlaceholder ? _parameters.Count - 1 : _parameters.Count;
+        }
         int count = 0;
         foreach (IfxParameter p in _parameters)
             if (p.Direction is not (ParameterDirection.Output or ParameterDirection.ReturnValue))

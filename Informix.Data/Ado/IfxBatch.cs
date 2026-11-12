@@ -147,7 +147,10 @@ public sealed class IfxBatch : DbBatch
     {
         var session = RequireOpenConnection();
         if (_commands.Count == 0)
+        {
+            session.ClearReservedForAcquire(); // nothing runs, so no execution scope will release it
             return 0;
+        }
 
         var reporter = _connection!.MetricsReporter;
         Activity? activity = IfxActivitySource.IsEnabled
@@ -187,51 +190,57 @@ public sealed class IfxBatch : DbBatch
         var handles = new SqliStatementHandle?[n]; // null for an Immediate (parameterless) step
         var resolved = new Dictionary<(string Sql, int ParamCount), SqliStatementHandle>();
 
-        for (int idx = 0; idx < n; idx++)
-        {
-            IfxBatchCommand cmd = _commands[idx];
-            string sql = cmd.EffectiveCommandText();
-            List<SqliBindValue> binds = cmd.BuildBinds(session);
-
-            if (binds.Count == 0 && cmd.CommandType != CommandType.StoredProcedure)
-            {
-                steps.Add(new SqliChainStep { Kind = SqliChainStepKind.Immediate, Sql = sql });
-                continue;
-            }
-
-            var key = (sql, binds.Count);
-            if (!resolved.TryGetValue(key, out SqliStatementHandle? handle))
-            {
-                handle = session.PrepareCached(sql, binds.Count, scroll: false, hold: false);
-                resolved[key] = handle;
-            }
-            if (handle.DescribesResultSet)
-            {
-                foreach (SqliStatementHandle h in resolved.Values)
-                    session.ReleaseStatementHandle(h);
-                int describesCode = handle.StatementType == (short)SqliStatementType.Select
-                    ? SelectInNonQuerySqlCode
-                    : RoutineReturnsInNonQuerySqlCode;
-                var ex = new IfxException(
-                    $"Batch command {idx} (\"{sql}\") describes a result set; IfxBatch.ExecuteNonQuery does not " +
-                    $"run SELECTs or RETURNING procedures ({describesCode}) -- use ExecuteReader instead.",
-                    describesCode);
-                ex.SetBatchCommand(cmd);
-                throw ex;
-            }
-            handles[idx] = handle;
-            steps.Add(new SqliChainStep { Kind = SqliChainStepKind.Execute, StatementId = handle.StatementId, Binds = binds });
-        }
-
+        // Whatever goes wrong before the chain has run -- a later command's text does not prepare,
+        // its parameters do not bind, it turns out to return rows, or the chain's own exchange
+        // fails -- the statements prepared so far are released. They are referenced by nothing
+        // but this method's dictionary, so otherwise they would stay prepared on the server for
+        // as long as the (possibly pooled) physical connection lives.
         SqliChainOutcome outcome;
         try
         {
+            for (int idx = 0; idx < n; idx++)
+            {
+                IfxBatchCommand cmd = _commands[idx];
+                string sql = cmd.EffectiveCommandText();
+                List<SqliBindValue> binds = cmd.BuildBinds(session);
+
+                if (binds.Count == 0 && cmd.CommandType != CommandType.StoredProcedure)
+                {
+                    steps.Add(new SqliChainStep { Kind = SqliChainStepKind.Immediate, Sql = sql });
+                    continue;
+                }
+
+                var key = (sql, binds.Count);
+                if (!resolved.TryGetValue(key, out SqliStatementHandle? handle))
+                {
+                    handle = session.PrepareCached(sql, binds.Count, scroll: false, hold: false);
+                    resolved[key] = handle;
+                }
+                if (handle.DescribesResultSet)
+                {
+                    int describesCode = handle.StatementType == (short)SqliStatementType.Select
+                        ? SelectInNonQuerySqlCode
+                        : RoutineReturnsInNonQuerySqlCode;
+                    var ex = new IfxException(
+                        $"Batch command {idx} (\"{sql}\") describes a result set; IfxBatch.ExecuteNonQuery does not " +
+                        $"run SELECTs or RETURNING procedures ({describesCode}) -- use ExecuteReader instead.",
+                        describesCode);
+                    ex.SetBatchCommand(cmd);
+                    throw ex;
+                }
+                handles[idx] = handle;
+                steps.Add(new SqliChainStep { Kind = SqliChainStepKind.Execute, StatementId = handle.StatementId, Binds = binds });
+            }
+
             outcome = session.ExecuteChain(steps);
         }
         catch
         {
             foreach (SqliStatementHandle h in resolved.Values)
-                session.ReleaseStatementHandle(h);
+            {
+                try { session.ReleaseStatementHandle(h); }
+                catch { /* a broken connection: the failure being reported is the one that matters */ }
+            }
             throw;
         }
 
@@ -301,7 +310,10 @@ public sealed class IfxBatch : DbBatch
     {
         var session = RequireOpenConnection();
         if (_commands.Count == 0)
+        {
+            session.ClearReservedForAcquire(); // nothing runs, so no execution scope will release it
             return new IfxDataReader(new SqliEmptyCursor(0), null, _connection);
+        }
 
         var reporter = _connection!.MetricsReporter;
         Activity? activity = IfxActivitySource.IsEnabled

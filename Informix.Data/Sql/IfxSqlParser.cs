@@ -93,7 +93,8 @@ internal sealed class IfxParsedCommand
 /// string literals, quoted identifiers and comments so placeholders inside them are
 /// left untouched. Similar to the SQL-parser approach other providers use (the analogous
 /// <c>@p</c> → <c>$1</c> rewrite) but with Informix lexical rules — no dollar-quoting,
-/// no E-strings, non-nesting block comments, curly-brace comments, the <c>::</c> cast
+/// no E-strings, non-nesting block comments, curly-brace comments (but not the braces of a
+/// <c>SET{...}</c>/<c>LIST{...}</c>/<c>MULTISET{...}</c> collection constructor), the <c>::</c> cast
 /// operator guard, and the cross-database qualifier rule (a <c>:</c>/<c>@</c> glued to the
 /// end of an identifier is part of a qualified object name — <c>dbname:object</c>,
 /// <c>dbname@server:object</c> — not a placeholder).
@@ -188,6 +189,8 @@ internal static class IfxSqlParser
         bool sawPositional = false;
         int positionalCount = 0;
 
+        int lastText = -1;                 // see IsCollectionConstructor
+
         int i = 0;
         while (i < n)
         {
@@ -195,28 +198,37 @@ internal static class IfxSqlParser
             switch (c)
             {
                 case '\'':
+                    lastText = -1;
                     i = SkipSingleQuoted(sql, i);
                     break;
                 case '"':
+                    lastText = -1;
                     i = SkipDoubleQuoted(sql, i);
                     break;
                 case '-':
                     // "-- ..." line comment; a lone '-' is ordinary text.
+                    lastText = -1;
                     i = i + 1 < n && sql[i + 1] == '-' ? SkipLineComment(sql, i + 2) : i + 1;
                     break;
                 case '/':
                     // "/* ... */" block comment (does NOT nest in Informix); a lone '/' is text.
+                    lastText = -1;
                     i = i + 1 < n && sql[i + 1] == '*' ? SkipBlockComment(sql, i + 2) : i + 1;
                     break;
                 case '{':
-                    i = SkipBraceComment(sql, i + 1);
+                    // SET{...} / LIST{...} / MULTISET{...} is a collection constructor: its
+                    // braces are ordinary text and what is inside them is scanned as usual.
+                    i = IsCollectionConstructor(sql, lastText) ? i + 1 : SkipBraceComment(sql, i + 1);
+                    lastText = -1;
                     break;
                 case '?':
+                    lastText = -1;
                     sawPositional = true;
                     positionalCount++;
                     i++;
                     break;
                 case ':':
+                    lastText = -1;
                     // The "::type" cast operator: two colons swallow both and never start a
                     // name (so a ':' preceded by ':' can never start one either).
                     if (i + 1 < n && sql[i + 1] == ':')
@@ -239,12 +251,16 @@ internal static class IfxSqlParser
                     // left literal). Leave it, and its identifier, alone.
                     if (i > 0 && (IsNameChar(sql[i - 1]) || sql[i - 1] == '@'))
                     {
+                        lastText = -1;
                         i++;
                         break;
                     }
+                    lastText = -1;
                     i = TryNamedParam(sql, i, ref rewritten, ref names, ref copied);
                     break;
                 default:
+                    if (!char.IsWhiteSpace(c))
+                        lastText = i;
                     i++;
                     break;
             }
@@ -277,16 +293,22 @@ internal static class IfxSqlParser
     public static int CountPositionalPlaceholders(string sql)
     {
         int n = sql.Length, count = 0, i = 0;
+        int lastText = -1; // see IsCollectionConstructor
         while (i < n)
         {
             char c = sql[i];
+            if (c is '\'' or '"' or '-' or '/' or '?' or ':' or '@')
+                lastText = -1;
             switch (c)
             {
                 case '\'': i = SkipSingleQuoted(sql, i); break;
                 case '"': i = SkipDoubleQuoted(sql, i); break;
                 case '-': i = i + 1 < n && sql[i + 1] == '-' ? SkipLineComment(sql, i + 2) : i + 1; break;
                 case '/': i = i + 1 < n && sql[i + 1] == '*' ? SkipBlockComment(sql, i + 2) : i + 1; break;
-                case '{': i = SkipBraceComment(sql, i + 1); break;
+                case '{':
+                    i = IsCollectionConstructor(sql, lastText) ? i + 1 : SkipBraceComment(sql, i + 1);
+                    lastText = -1;
+                    break;
                 case '?': count++; i++; break;
                 case ':':
                     // "::" cast operator and the "dbname:object" qualifier are not placeholders.
@@ -302,10 +324,48 @@ internal static class IfxSqlParser
                         throw NamedNotSupported();
                     i++;
                     break;
-                default: i++; break;
+                default:
+                    if (!char.IsWhiteSpace(c))
+                        lastText = i;
+                    i++;
+                    break;
             }
         }
         return count;
+    }
+
+    /// <summary>
+    /// Whether the <c>{</c> the scanner has just reached opens a collection constructor —
+    /// <c>SET{...}</c>, <c>LIST{...}</c> or <c>MULTISET{...}</c> — rather than a comment.
+    /// </summary>
+    /// <remarks>
+    /// <para>The rule is the server's own (live-verified against IDS 9.59): a brace that follows
+    /// one of those three keywords, with nothing but white space in between, is always a
+    /// constructor. That holds even where the keyword is the SET of an UPDATE —
+    /// <c>update t set {a comment} a = 1</c> is a syntax error (-201) on the server, not a
+    /// commented statement — so no statement the server accepts changes meaning here. A
+    /// comment between the keyword and the brace (<c>SET /* c */ {1}</c>) is likewise refused
+    /// by the server, so it needs no special handling.</para>
+    /// <para><paramref name="lastText"/> is the index of the last character the scanner consumed
+    /// as plain statement text, white space aside, or -1 when the thing before the brace was a
+    /// literal, a comment, a placeholder or an operator. Tracking it in the scan — instead of
+    /// looking back through the string — is what keeps a keyword inside a preceding comment
+    /// (<c>-- set</c> + newline + <c>{comment}</c>) from being taken for the real one.</para>
+    /// </remarks>
+    private static bool IsCollectionConstructor(string sql, int lastText)
+    {
+        if (lastText < 0)
+            return false;
+        int start = lastText;
+        while (start >= 0 && IsNameChar(sql[start]))
+            start--;
+        // A non-ASCII letter glued in front makes it a longer identifier, not the keyword.
+        if (start >= 0 && char.IsLetter(sql[start]))
+            return false;
+        ReadOnlySpan<char> word = sql.AsSpan(start + 1, lastText - start);
+        return word.Equals("SET", StringComparison.OrdinalIgnoreCase)
+            || word.Equals("LIST", StringComparison.OrdinalIgnoreCase)
+            || word.Equals("MULTISET", StringComparison.OrdinalIgnoreCase);
     }
 
     private static IfxException NamedNotSupported() => new(

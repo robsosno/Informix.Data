@@ -299,11 +299,9 @@ public sealed class IfxCommand : DbCommand, ICloneable
         if (_preparedHandle is null)
             return; // never prepared, already unprepared, or dropped by a CommandText/Connection change
 
-        if (_connection is not { State: ConnectionState.Open } conn
-            || conn.SqliSession is not { } session
-            || !ReferenceEquals(session, _preparedSession))
+        if (LiveSessionOf(_preparedSession) is not { } session)
         {
-            // Not open, or the held statement was prepared on a physical session that is no
+            // Not open, or the held statement was prepared on a physical connection that is no
             // longer this connection's live one (see _preparedSession) -- nothing to release
             // remotely; just forget the handle locally.
             ClearHeldState();
@@ -311,7 +309,7 @@ public sealed class IfxCommand : DbCommand, ICloneable
         }
 
         session.ThrowIfStatementOwned();
-        if (session.CursorOpen)
+        if (session.CursorOpen || session.HasAttachedReader)
             throw new InvalidOperationException(
                 "A data reader is open on this command's prepared statement; close it before calling Unprepare().");
 
@@ -365,10 +363,27 @@ public sealed class IfxCommand : DbCommand, ICloneable
     {
         if (ClearHeldState() is not { } held)
             return;
-        if (_connection is { State: ConnectionState.Open } conn && conn.SqliSession is { } liveSession
-            && ReferenceEquals(liveSession, held.Session))
-            liveSession.ReleaseStatementHandle(held.Handle);
+        if (LiveSessionOf(held.Session) is not { } session)
+            return;
+        // A reader still open on this very statement owns the session's row buffer; releasing
+        // the statement under it would wipe the rows it has not read yet. It is left to the
+        // connection's close, which releases whatever a session still has prepared.
+        if (session.HasAttachedReader && session.StatementId == held.Handle.StatementId)
+            return;
+        session.ReleaseStatementHandle(held.Handle);
     }
+
+    // The session a held statement was prepared on, when it still belongs to the physical
+    // connection behind this command's (open) Connection; null otherwise. With several sessions
+    // on one connection the statement may sit on a sibling session rather than the default one,
+    // so the test is "same link", not "is the default session".
+    private SqliSession? LiveSessionOf(SqliSession? preparedOn) =>
+        preparedOn is not null
+        && _connection is { State: ConnectionState.Open } conn
+        && conn.SqliSession is { } live
+        && ReferenceEquals(live.Link, preparedOn.Link)
+            ? preparedOn
+            : null;
 
     /// <summary>
     /// Prepares (or reactivates this command's already-held statement, or a session
@@ -470,10 +485,7 @@ public sealed class IfxCommand : DbCommand, ICloneable
     /// </summary>
     public override int ExecuteNonQuery()
     {
-        var session = RequireOpenConnection();
-        string sql = EffectiveCommandText();
-        var binds = BuildBinds(session);
-        LogExecuting(sql);
+        var session = BeginExecution(out string sql, out var binds);
 
         Activity? activity = StartCommandActivity();
         // Arm the CommandTimeout cancel timer for the whole execution (prepare +
@@ -697,10 +709,7 @@ public sealed class IfxCommand : DbCommand, ICloneable
     // A routine with OUT/INOUT parameters returns values, not a result set; say so instead of surfacing a bare -9752.
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
     {
-        var session = RequireOpenConnection();
-        var binds = BuildBinds(session);
-        string sql = EffectiveCommandText();
-        LogExecuting(sql);
+        var session = BeginExecution(out string sql, out var binds);
 
         Activity? activity = StartCommandActivity();
         // The operation-duration metric measures the execute/open call itself; the span
@@ -860,10 +869,7 @@ public sealed class IfxCommand : DbCommand, ICloneable
     /// </summary>
     public IfxScrollReader ExecuteScrollReader()
     {
-        var session = RequireOpenConnection();
-        var binds = BuildBinds(session);
-        string sql = EffectiveCommandText();
-        LogExecuting(sql);
+        var session = BeginExecution(out string sql, out var binds);
 
         Activity? activity = StartCommandActivity();
         using var scope = new IfxExecutionScope(session, _connection!.MetricsReporter, activity, Logging.CommandLogger);
@@ -952,6 +958,30 @@ public sealed class IfxCommand : DbCommand, ICloneable
         }
     }
 
+    // The common opening of every Execute* method: reserve a session, then resolve the statement
+    // text and encode the binds. The reservation is normally released by the caller's
+    // IfxExecutionScope, which does not exist yet at this point -- so anything that throws here
+    // (a placeholder/parameter count mismatch, an unsupported parameter value, a mixed-placeholder
+    // statement, a failed smart-LOB upload) has to release it itself. Left reserved, the session
+    // would never be handed out again: every later statement on the connection would run on a
+    // freshly minted sibling session, one more for each such failure.
+    private SqliSession BeginExecution(out string sql, out List<SqliBindValue> binds)
+    {
+        var session = RequireOpenConnection();
+        try
+        {
+            sql = EffectiveCommandText();
+            binds = BuildBinds(session);
+            LogExecuting(sql);
+            return session;
+        }
+        catch
+        {
+            session.ClearReservedForAcquire();
+            throw;
+        }
+    }
+
     // Reserves a session for this execution (the primary one, or a sibling if a reader is open); IfxExecutionScope releases the reservation.
     private SqliSession RequireOpenConnection()
     {
@@ -974,9 +1004,9 @@ public sealed class IfxCommand : DbCommand, ICloneable
         if (!IsInternal && _connection.ActiveTransaction is not null && _transaction is not { Connection: not null })
             throw new InvalidOperationException(
                 "The command requires its Transaction property to be set to the connection's pending local transaction.");
-        var session = _connection.AcquireSession();
-        session.ThrowIfStatementOwned();
-        return session;
+        // AcquireSession never hands out a session a bulk loader has pinned, so there is no
+        // ownership check to fail (and leak the reservation) after it.
+        return _connection.AcquireSession();
     }
 
     /// <summary>

@@ -248,24 +248,51 @@ internal sealed class IfxConnectionPool
 /// </summary>
 internal static class IfxConnectionPools
 {
-    private static readonly ConcurrentDictionary<string, IfxConnectionPool> Pools = new(StringComparer.Ordinal);
+    // Lazy, because ConcurrentDictionary.GetOrAdd may run its factory more than once when two
+    // threads miss at the same time and keeps only one result. Building a pool is not free -- it
+    // opens the Min Pool Size connections and starts the prune timer -- so the loser of that race
+    // would be a second, unreachable pool holding live server connections nobody can ever close.
+    // With Lazy the race is over cheap wrappers and exactly one pool gets built.
+    private static readonly ConcurrentDictionary<string, Lazy<IfxConnectionPool>> Pools = new(StringComparer.Ordinal);
 
     /// <summary>Returns the pool for <paramref name="key"/>, creating it with
     /// <paramref name="builder"/> only on the first (cache-miss) call for that key.</summary>
-    public static IfxConnectionPool GetOrCreate(string key, Func<IfxConnectionPool> builder) =>
-        Pools.GetOrAdd(key, _ => builder());
+    public static IfxConnectionPool GetOrCreate(string key, Func<IfxConnectionPool> builder)
+    {
+        var lazy = Pools.GetOrAdd(key, _ => new Lazy<IfxConnectionPool>(builder));
+        try
+        {
+            return lazy.Value;
+        }
+        catch
+        {
+            // A builder that threw is cached by Lazy; drop the entry so the next Open retries.
+            Pools.TryRemove(new KeyValuePair<string, Lazy<IfxConnectionPool>>(key, lazy));
+            throw;
+        }
+    }
 
-    public static bool TryGet(string key, out IfxConnectionPool pool) => Pools.TryGetValue(key, out pool!);
+    public static bool TryGet(string key, out IfxConnectionPool pool)
+    {
+        if (Pools.TryGetValue(key, out var lazy) && lazy.IsValueCreated)
+        {
+            pool = lazy.Value;
+            return true;
+        }
+        pool = null!;
+        return false;
+    }
 
     public static void Clear(string key)
     {
-        if (Pools.TryGetValue(key, out var pool))
+        if (TryGet(key, out var pool))
             pool.Clear();
     }
 
     public static void ClearAll()
     {
-        foreach (var pool in Pools.Values)
-            pool.Clear();
+        foreach (var lazy in Pools.Values)
+            if (lazy.IsValueCreated)
+                lazy.Value.Clear();
     }
 }

@@ -147,35 +147,59 @@ internal sealed class IfxEnlistment : IPromotableSinglePhaseNotification
             _state = State.Resolved;
         }
 
-        if (commit)
+        // The ownership hand-back below has to happen whether or not the exchange succeeds: this
+        // method runs exactly once, so a commit/rollback that throws would otherwise leave a
+        // closed facade's physical connection checked out forever (a pool slot gone for good)
+        // and an open facade still believing it is enlisted.
+        bool succeeded = false;
+        try
         {
-            _session.ExecuteCommit();   // SQ_CMMTWORK
-            LogMessages.TransactionCommitted(_logging.TransactionLogger);
+            if (commit)
+            {
+                _session.ExecuteCommit();   // SQ_CMMTWORK
+                LogMessages.TransactionCommitted(_logging.TransactionLogger);
+            }
+            else
+            {
+                _session.ExecuteRollback(); // SQ_RBWORK
+                LogMessages.TransactionRolledBack(_logging.TransactionLogger);
+            }
+            succeeded = true;
         }
-        else
+        finally
         {
-            _session.ExecuteRollback(); // SQ_RBWORK
-            LogMessages.TransactionRolledBack(_logging.TransactionLogger);
+            if (prior == State.FacadeClosed)
+                ReturnPhysical(clean: succeeded);
+            else
+                _connection.OnEnlistmentResolvedWhileOpen(this);
         }
-
-        if (prior == State.FacadeClosed)
-            ReturnPhysical();
-        else
-            _connection.OnEnlistmentResolvedWhileOpen(this);
     }
 
     // Returns the physical connection to its pool now that its ambient transaction is done
     // (mirrors IfxConnection.Close's pooled-return path). Only reached when the facade was
     // closed before the transaction resolved, so this enlistment is the last owner.
-    private void ReturnPhysical()
+    private void ReturnPhysical(bool clean)
     {
         if (_pool is null)
         {
             _physical.Dispose(); // non-pooled: orderly SQ_EXIT then close the socket
             return;
         }
+        if (!clean)
+        {
+            // The commit/rollback itself failed: the transaction's state on the server is
+            // unknown, so the connection must not be reused.
+            _pool.Discard(_physical);
+            return;
+        }
         try
         {
+            // Same clean-up IfxConnection.Close does before pooling: a statement that is merely
+            // still prepared (an undisposed Prepare()d command) is released rather than costing
+            // the connection; one behind an abandoned reader is left for IsIdle to catch.
+            foreach (var session in _session.Link.Sessions)
+                if (!session.CursorOpen && !session.HasAttachedReader && session.StatementId != -1)
+                    session.ReleaseStatement();
             // Link.IsIdle, not _session.IsIdle.
             if (_session.Link.IsIdle)
                 _pool.Return(_physical);

@@ -186,6 +186,19 @@ internal sealed class SqliSession
     /// <summary>True while a server-side cursor is open on this session.</summary>
     public bool CursorOpen { get; private set; }
 
+    /// <summary>
+    /// True from a successful <see cref="OpenCursor"/>/<see cref="OpenScrollCursor"/> until the
+    /// reader that owns the result set calls <see cref="CloseCursor"/> — whether or not the
+    /// server-side cursor still exists. It differs from <see cref="CursorOpen"/> in exactly one
+    /// case: a commit or rollback closed a non-hold cursor under a reader that is still alive
+    /// (<see cref="MarkNonHoldCursorClosedByTransactionEnd"/>). That reader keeps serving the
+    /// rows already in this session's tuple buffer and will still end its statement when it is
+    /// disposed, so until then the session must neither be handed to another statement (which
+    /// would wipe the buffer and silently cut the reader's result set short) nor go back to
+    /// the pool (where the stale reader's dispose would act on someone else's connection).
+    /// </summary>
+    public bool HasAttachedReader { get; private set; }
+
     /// <summary>True while a server-side insert cursor (SQ_PUT protocol) is open.</summary>
     public bool InsertCursorOpen { get; private set; }
 
@@ -355,7 +368,7 @@ internal sealed class SqliSession
     public void ReleaseOrCache(SqliStatementHandle handle, string sql, bool scroll, bool hold)
     {
         using var gate = _link.Gate.EnterScope();
-        if (StatementCache is not { } cache)
+        if (StatementCache is not { } cache || !_asf.IsConnected)
         {
             ReleaseStatementHandle(handle);
             return;
@@ -525,10 +538,13 @@ internal sealed class SqliSession
         if (text.Length > IfxPamResponse.MaxMessageSize)
             throw new IfxException("PAM response exceeds 512 characters.", -79886);
 
+        // The length word counts bytes, not characters: with a multi-byte code set the two
+        // differ, and a short count leaves the tail of the answer in the stream as garbage.
+        byte[] encoded = IfxWireConverter.EncodeChar(text, _out.DbEncoding);
         _out.WriteInt16((short)SqliMessage.Response);
-        _out.WriteInt16((short)text.Length);
-        if (text.Length > 0)
-            _out.WritePadded(IfxWireConverter.EncodeChar(text, _out.DbEncoding));
+        _out.WriteInt16((short)encoded.Length);
+        if (encoded.Length > 0)
+            _out.WritePadded(encoded);
         Flip();
     }
 
@@ -1033,6 +1049,7 @@ internal sealed class SqliSession
             _closeReceived = true;
         }
         CursorOpen = true;
+        HasAttachedReader = true;
         HasRows = _tupleBuffer.Count > 0; // empty first fetch => the query matched no rows
     }
 
@@ -1102,6 +1119,7 @@ internal sealed class SqliSession
         Flip();
         ReceiveMessage();
         CursorOpen = true;
+        HasAttachedReader = true;
     }
 
     /// <summary>
@@ -1391,11 +1409,14 @@ internal sealed class SqliSession
         // sibling session's commit/rollback (see MarkNonHoldCursorClosedByTransactionEnd)
         // can flip this session's CursorOpen from a different thread at any time.
         using var gate = _link.Gate.EnterScope();
+        HasAttachedReader = false; // the reader is done with this session either way
         if (!CursorOpen)
             return;
         CursorOpen = false;
         if (_closeReceived)
             return; // the server already auto-closed at end of rows
+        if (!_asf.IsConnected)
+            return; // the connection was closed under the reader: nothing is left to close
         SendStatementId();
         _out.WriteInt16((short)SqliMessage.Close);
         Flip();
@@ -1406,7 +1427,7 @@ internal sealed class SqliSession
     /// True when the session carries no open cursor or prepared statement — the clean
     /// state a physical connection must be in to be safely returned to the pool.
     /// </summary>
-    public bool IsIdle => !CursorOpen && StatementId == -1;
+    public bool IsIdle => !CursorOpen && !HasAttachedReader && StatementId == -1;
 
     /// <summary>
     /// Marks this session's open cursor closed because the connection's transaction just ended
@@ -1441,6 +1462,11 @@ internal sealed class SqliSession
         using var gate = _link.Gate.EnterScope();
         if (StatementId == -1)
             return;
+        if (!_asf.IsConnected)
+        {
+            ClearStatementState(); // the server side went with the connection
+            return;
+        }
         SendStatementId();
         _out.WriteInt16((short)SqliMessage.Release);
         StatementId = -1;
@@ -1463,6 +1489,14 @@ internal sealed class SqliSession
         using var gate = _link.Gate.EnterScope();
         ArgumentNullException.ThrowIfNull(handle);
         bool wasActive = StatementId == handle.StatementId;
+        if (!_asf.IsConnected)
+        {
+            // Reached from a reader or command disposed after its connection was closed: the
+            // statement died with the connection, so only the local bookkeeping is left.
+            if (wasActive)
+                ClearStatementState();
+            return;
+        }
         SendStatementId(handle.StatementId);
         _out.WriteInt16((short)SqliMessage.Release);
         if (wasActive)
@@ -1570,9 +1604,11 @@ internal sealed class SqliSession
     // ---- pipeline internals ----
 
     // The server allows one open cursor per session; nested readers run on a sibling session instead.
+    // A reader whose cursor a commit/rollback already closed (HasAttachedReader without CursorOpen) still
+    // owns this session's tuple buffer and statement, so it blocks a new statement just the same.
     private void ThrowIfCursorOpen()
     {
-        if (CursorOpen)
+        if (CursorOpen || HasAttachedReader)
             throw new InvalidOperationException(
                 "A data reader is already open on this connection; close it before executing another statement.");
     }
@@ -1647,6 +1683,7 @@ internal sealed class SqliSession
         _first = false;
         HasRows = false;
         InsertCursorOpen = false;
+        HasAttachedReader = false;
         ResetTuples();
     }
 
@@ -2304,6 +2341,8 @@ internal sealed class SqliSession
     // The reply chunks land in _loReadBuffer via ReceiveLoData.
     private byte[] LoRead(int fd, int nbytes)
     {
+        if (nbytes <= 0)
+            return [];
         using var gate = _link.Gate.EnterScope();
         _loReadBuffer = new byte[nbytes];
         _loReadOffset = 0;
@@ -2317,6 +2356,11 @@ internal sealed class SqliSession
         ReceiveMessage();
         byte[] result = _loReadBuffer;
         _loReadBuffer = null;
+        // The server sends min(requested, bytes left in the object). Hand back exactly what
+        // arrived: callers take the array length as the count read, so a zero-padded tail would
+        // turn a read at (or near) the end of the object into phantom data and never report 0.
+        if (_loReadOffset < result.Length)
+            Array.Resize(ref result, _loReadOffset);
         return result;
     }
 
@@ -2924,7 +2968,7 @@ internal sealed class SqliSession
         }
         if (sqlcode != 0 && sqlcode != MiDiagnosticSqlCode)
         {
-            _pending = new IfxException(
+            _pending ??= new IfxException(
                 message.Length > 0 ? message : IfxException.TextForEmptyMessage(sqlcode),
                 sqlCode: sqlcode, isamCode: isamcode);
             return;
@@ -2941,7 +2985,7 @@ internal sealed class SqliSession
             // "memory allocation failed" alone does not say which UDR failed, and for a
             // DataBlade error that is the single most useful thing the reply carries.
             string text = diagnostic.Length > 0 ? diagnostic : IfxException.TextForEmptyMessage(sqlcode);
-            _pending = new IfxException(
+            _pending ??= new IfxException(
                 routine.Length > 0 ? $"{text} ({routine})" : text,
                 sqlCode: sqlcode, isamCode: isamcode, sqlState: sqlState);
             return;

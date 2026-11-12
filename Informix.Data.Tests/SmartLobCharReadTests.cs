@@ -96,14 +96,17 @@ public class SmartLobCharReadTests
     public void Sequential_reads_over_a_multibyte_locale_do_not_lose_or_duplicate_bytes()
     {
         const string full = "HELLOWORLD!"; // 11 ASCII bytes/chars, 1 byte per char in UTF-8
+        // The server answers a read with min(requested, bytes left in the object): the first
+        // read asks for 5 chars x 6 bytes = 30 and gets the whole 11-byte object, of which only
+        // 5 bytes fit the destination -- the other 6 are pushed back. The second read asks for
+        // 36 from offset 5 and gets the 6 that remain, all of which it uses: nothing to push back.
         byte[] script = SqliStatementKit.Join(
             Open(39),
             SeekResolvingHandle(),                       // Seek(0) before the 1st read
-            Read(Encoding.ASCII.GetBytes(full[..5])),     // "HELLO"
-            SeekReusingHandle(),                          // push-back after the 1st read
+            Read(Encoding.ASCII.GetBytes(full)),          // "HELLOWORLD!" (over-fetched)
+            SeekReusingHandle(),                          // push-back of "WORLD!" after the 1st read
             SeekReusingHandle(),                          // Seek(5) before the 2nd read
-            Read(Encoding.ASCII.GetBytes(full[5..])),     // "WORLD!"
-            SeekReusingHandle());                         // push-back after the 2nd read
+            Read(Encoding.ASCII.GetBytes(full[5..])));    // "WORLD!"
 
         using var cn = Connect(script, out _, dbLocale: "en_US.utf8");
         var clob = new IfxClob(cn, new IfxSmartLOBLocator(Locator(0x20)));

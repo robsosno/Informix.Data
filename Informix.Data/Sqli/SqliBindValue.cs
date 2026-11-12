@@ -164,7 +164,7 @@ internal readonly struct SqliBindValue
             case bool b:
                 return From(b ? "t" : "f", encoding);
 
-            case byte or sbyte or short or ushort:
+            case byte or sbyte or short:
                 return new SqliBindValue
                 {
                     Type = SqliTypeCode.SmallInt,
@@ -174,6 +174,18 @@ internal readonly struct SqliBindValue
 
             case int i:
                 return new SqliBindValue { Type = SqliTypeCode.Int, Data = IfxWireConverter.ToInt32(i), Precision = 4 };
+
+            // The unsigned types bind as the next wider signed type, the narrowest that holds
+            // their whole range (a ushort above 32767 does not fit SMALLINT); ulong has no wider
+            // integer to go to and binds as DECIMAL.
+            case ushort us:
+                return From((int)us, encoding);
+
+            case uint ui:
+                return From((long)ui, encoding);
+
+            case ulong ul:
+                return From((decimal)ul, encoding);
 
             // long maps to INT8 (the 10-byte format), not BIGINT, so it works on servers without bit 54.
             case long l:

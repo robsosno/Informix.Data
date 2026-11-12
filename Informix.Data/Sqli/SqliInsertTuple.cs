@@ -59,7 +59,9 @@ internal static class SqliInsertTuple
     // INT8 sign 0, DATE int.MinValue; CHAR and packed decimals use an empty/zero image.
     private static void EncodeField(IfxColumnMetadata field, Span<byte> dst, object? value, Encoding encoding, int col)
     {
-        bool isNull = value is null or DBNull;
+        // The same notion of NULL the SQ_BIND converters use (SqliBindValue.ConverterFor), so a
+        // row means the same whichever engine the loader picked for the statement.
+        bool isNull = value is null or DBNull or IfxDecimal { IsNull: true };
         switch (field.SqliTypeCode)
         {
             case SqliTypeCode.SmallInt:
@@ -101,7 +103,7 @@ internal static class SqliInsertTuple
 
             case SqliTypeCode.Decimal:
             case SqliTypeCode.Money:
-                if (!isNull) EncodeDecimal(dst, AsDecimal(value!, col), col);
+                if (!isNull) EncodeDecimal(dst, AsDecimal(value!, col), field, col);
                 // NULL: leave all-zero — a zero exponent byte is the packed-decimal NULL marker.
                 break;
 
@@ -126,17 +128,77 @@ internal static class SqliInsertTuple
         bytes.CopyTo(dst);
     }
 
-    private static void EncodeDecimal(Span<byte> dst, decimal value, int col)
+    private static void EncodeDecimal(Span<byte> dst, decimal value, IfxColumnMetadata field, int col)
     {
-        // ToWireBytes is the bind form [len:int16][exp][digits]; the tuple carries the
-        // bare packed bytes (exp + digits) left-aligned in the fixed footprint, the
-        // trailing bytes staying zero — byte-for-byte what the server sends on a fetch.
-        byte[] wire = PackedValue.FromDecimal(value).ToWireBytes();
-        int bare = wire.Length - 2;
+        // A row image is stored as given: unlike a bound parameter, nothing on the server
+        // converts it to the column's type first. So the value is brought to the column's
+        // precision and scale here, the way an assignment would: rounded to the declared scale
+        // (half away from zero, Informix's rounding) and refused when the integer part is wider
+        // than the column allows.
+        if (field.NumericScale is { } scale and >= 0 and <= 28)
+        {
+            value = Math.Round(value, scale, MidpointRounding.AwayFromZero);
+            if (field.NumericPrecision is { } precision && precision >= scale)
+            {
+                decimal limit = 1m;
+                for (int i = 0; i < precision - scale && i < 28; i++)
+                    limit *= 10m;
+                if (precision - scale <= 28 && Math.Abs(value) >= limit)
+                    throw new OverflowException(
+                        $"column {col + 1}: decimal {value} does not fit the column's DECIMAL({precision},{scale}).");
+            }
+        }
+
+        // ToWireBytes is the bind form [len:int16][exp][digits]; the tuple carries the bare
+        // packed bytes (exp + digits) left-aligned in the fixed footprint, the trailing bytes
+        // staying zero — byte-for-byte what the server sends on a fetch. That means the
+        // normalized form: no leading zero digit (0.5 is exponent 0 + digit 50, not exponent 1
+        // + digits 00 50, which is what the text-driven encoder produces for a value below 1)
+        // and no trailing zero digits.
+        //
+        // The magnitude is packed and normalized first and the sign applied last, so the
+        // 100's complement of a negative value is taken over the final digits.
+        bool negative = value < 0;
+        byte[] wire = PackedValue.FromDecimal(Math.Abs(value)).ToWireBytes();
+        int exponent = wire[2] & 0x7F;      // excess-64 exponent of the (positive) magnitude
+        Span<byte> digits = wire.AsSpan(3);
+        if (!IsAllZero(digits))
+        {
+            while (digits[0] == 0)
+            {
+                digits = digits[1..];
+                exponent--;
+            }
+            while (digits[^1] == 0)
+                digits = digits[..^1];
+        }
+        else
+        {
+            negative = false; // zero has no sign
+        }
+
+        int bare = 1 + digits.Length;
         if (bare > dst.Length)
             throw new OverflowException(
                 $"column {col + 1}: decimal {value} needs {bare} packed byte(s) but the column holds {dst.Length}.");
-        wire.AsSpan(2, bare).CopyTo(dst);
+        if (negative)
+        {
+            PackedValue.DecComplement(digits);
+            dst[0] = (byte)((exponent ^ 0x7F) & 0x7F);
+        }
+        else
+        {
+            dst[0] = (byte)(exponent | 0x80);
+        }
+        digits.CopyTo(dst[1..]);
+    }
+
+    private static bool IsAllZero(ReadOnlySpan<byte> digits)
+    {
+        foreach (byte d in digits)
+            if (d != 0)
+                return false;
+        return true;
     }
 
     // ---- cheap coercions (mirror SqliBindValue.ConverterFor's §4.1 rules) ----
@@ -166,6 +228,7 @@ internal static class SqliInsertTuple
     private static decimal AsDecimal(object v, int col) => v switch
     {
         decimal x => x,
+        IfxDecimal x => x.Value,
         sbyte x => x, byte x => x, short x => x, ushort x => x,
         int x => x, uint x => x, long x => x, ulong x => x,
         _ => throw Wrong(col, v, "a decimal or integer value"),

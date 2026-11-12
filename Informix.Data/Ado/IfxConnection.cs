@@ -101,7 +101,7 @@ public sealed class IfxConnection : DbConnection, ICloneable
     public override string ConnectionString
     {
         get => _settings.ConnectionString;
-        set { _settings = new IfxConnectionStringBuilder(value); _dbEncoding = null; }
+        set { _settings = new IfxConnectionStringBuilder(value); _dbEncoding = null; _dbLocaleWasDiscovered = false; }
     }
 
     /// <summary>Typed view over the parsed connection string.</summary>
@@ -173,9 +173,28 @@ public sealed class IfxConnection : DbConnection, ICloneable
         return fresh;
     }
 
-    // Free = no open cursor, not already handed out, and not pinned by a bulk loader.
+    // Free = no open cursor, no reader still attached to a cursor a commit/rollback closed (it
+    // keeps reading the rows buffered on that session), not already handed out, and not pinned
+    // by a bulk loader.
     private static bool IsFreeForNewStatement(SqliSession session) =>
-        !session.CursorOpen && !session.IsReservedForAcquire && session.StatementOwner is null;
+        !session.CursorOpen && !session.HasAttachedReader
+        && !session.IsReservedForAcquire && session.StatementOwner is null;
+
+    // Runs one parameterless statement the driver itself issues (SET ISOLATION / SET TRANSACTION)
+    // on whichever session is free. These are connection-wide settings, so any session will do --
+    // and the default one may be busy serving an open reader, where ExecuteImmediate is refused.
+    private void ExecuteOnFreeSession(string sql)
+    {
+        var session = AcquireSession();
+        try
+        {
+            session.ExecuteImmediate(sql);
+        }
+        finally
+        {
+            session.ClearReservedForAcquire();
+        }
+    }
 
     /// <summary>
     /// The database character encoding for CHAR/NCHAR/VARCHAR/LVARCHAR/TEXT/CLOB text —
@@ -380,7 +399,7 @@ public sealed class IfxConnection : DbConnection, ICloneable
         ValidateIsolationLevel(isolationLevel);
 
         _sqli!.ExecuteBegin(); // SQ_BEGIN (BEGIN WORK)
-        ApplyTransactionCharacteristics(isolationLevel, isReadOnly);
+        ApplyCharacteristicsOrRollBack(_sqli, isolationLevel, isReadOnly);
         _activeTransaction = new IfxTransaction(this, isolationLevel, isReadOnly);
         LogMessages.TransactionBegan(_logging.TransactionLogger, DescribeCharacteristics(isolationLevel, isReadOnly));
         return _activeTransaction;
@@ -430,6 +449,26 @@ public sealed class IfxConnection : DbConnection, ICloneable
     // SET TRANSACTION's characteristics last only until the transaction ends (live-verified:
     // §5 P3) -- unlike SET ISOLATION, which leaks onto the session -- so, Snapshot aside,
     // BeginTransaction no longer leaves any level behind after Commit/Rollback.
+    // SQ_BEGIN has already opened the transaction when its characteristics are applied. If that
+    // statement fails (the server rejects the level, the statement is interrupted, ...), nothing
+    // on the client owns the transaction yet -- no IfxTransaction, no enlistment -- so it would
+    // stay open on the server unseen: later statements would silently run inside it, nothing would
+    // ever commit them, and Close() would return the connection to the pool still in it. Undo the
+    // BEGIN before reporting the failure.
+    private void ApplyCharacteristicsOrRollBack(SqliSession session, IsolationLevel level, bool readOnly)
+    {
+        try
+        {
+            ApplyTransactionCharacteristics(level, readOnly);
+        }
+        catch
+        {
+            try { session.ExecuteRollback(); }
+            catch { /* the original failure is the one to report */ }
+            throw;
+        }
+    }
+
     private void ApplyTransactionCharacteristics(IsolationLevel level, bool readOnly)
     {
         if (level == IsolationLevel.Snapshot)
@@ -453,9 +492,9 @@ public sealed class IfxConnection : DbConnection, ICloneable
             // predates the feature -- NOT a USELASTCOMMITTED onconfig effect: that parameter
             // only upgrades a *plain* COMMITTED READ/DIRTY READ implicitly and has no bearing
             // on this driver's explicit LAST COMMITTED clause).
-            _sqli!.ExecuteImmediate("SET ISOLATION TO COMMITTED READ LAST COMMITTED");
+            ExecuteOnFreeSession("SET ISOLATION TO COMMITTED READ LAST COMMITTED");
             if (readOnly)
-                _sqli!.ExecuteImmediate("SET TRANSACTION READ ONLY");
+                ExecuteOnFreeSession("SET TRANSACTION READ ONLY");
             return;
         }
 
@@ -477,25 +516,46 @@ public sealed class IfxConnection : DbConnection, ICloneable
             (not null, true) => $"SET TRANSACTION READ ONLY, ISOLATION LEVEL {isolationClause}",
         };
         if (sql is not null)
-            _sqli!.ExecuteImmediate(sql);
+            ExecuteOnFreeSession(sql);
     }
 
     // Called by IfxTransaction.Commit/Rollback.
+    //
+    // The transaction stops being the connection's active one only once the server has confirmed
+    // the commit/rollback. When the exchange fails (a constraint checked at commit, a bulk
+    // loader's pre-commit flush, an interrupt) the server-side transaction may well still be
+    // open; keeping it registered here is what lets the IfxTransaction's Dispose -- or, failing
+    // that, Close() -- roll it back. Forgetting it up front would leave the connection inside a
+    // transaction nothing knows about: the next BeginTransaction would fail with "already in
+    // transaction", and a pooled connection would be handed to its next user still holding the
+    // old transaction's locks.
     internal void CompleteTransaction(IfxTransaction transaction, bool commit)
     {
         if (!ReferenceEquals(_activeTransaction, transaction))
             return;
-        _activeTransaction = null;
         if (_sqli is null)
+        {
+            _activeTransaction = null;
             return;
+        }
         if (commit)
         {
             _sqli.ExecuteCommit();   // SQ_CMMTWORK
+            _activeTransaction = null;
             LogMessages.TransactionCommitted(_logging.TransactionLogger);
         }
         else
         {
-            _sqli.ExecuteRollback(); // SQ_RBWORK
+            try
+            {
+                _sqli.ExecuteRollback(); // SQ_RBWORK
+            }
+            finally
+            {
+                // A rollback that fails is not retried: there is nothing more the client can
+                // do with the transaction, and Close() discards a connection it cannot clean.
+                _activeTransaction = null;
+            }
             LogMessages.TransactionRolledBack(_logging.TransactionLogger);
         }
     }
@@ -564,7 +624,7 @@ public sealed class IfxConnection : DbConnection, ICloneable
     {
         var level = MapIsolationLevel(isolation);
         session.ExecuteBegin(); // SQ_BEGIN (BEGIN WORK)
-        ApplyTransactionCharacteristics(level, isReadOnly);
+        ApplyCharacteristicsOrRollBack(session, level, isReadOnly);
         LogMessages.TransactionBegan(_logging.TransactionLogger, DescribeCharacteristics(level, isReadOnly));
     }
 
@@ -594,6 +654,7 @@ public sealed class IfxConnection : DbConnection, ICloneable
         ArgumentException.ThrowIfNullOrWhiteSpace(databaseName);
         if (_state != ConnectionState.Open)
         {
+            ForgetDiscoveredDbLocale();
             _settings.Database = databaseName;
             return;
         }
@@ -607,6 +668,10 @@ public sealed class IfxConnection : DbConnection, ICloneable
         // PDU, so the portable way to switch is to reconnect; that also drops all
         // server-side statements.
         Close();
+        // The code set Open() discovered was the old database's; the new one may use another,
+        // and connecting with the stale locale would decode its text wrongly (or be refused by
+        // the server's locale check). Let Open() look it up afresh.
+        ForgetDiscoveredDbLocale();
         _settings.Database = databaseName;
         Open();
     }
@@ -802,7 +867,7 @@ public sealed class IfxConnection : DbConnection, ICloneable
             // AcquireSession), so this cleanup and the idleness check below both cover every
             // session on the link, not just the default.
             foreach (var session in physical.Sqli.Link.Sessions)
-                if (!session.CursorOpen && session.StatementId != -1)
+                if (!session.CursorOpen && !session.HasAttachedReader && session.StatementId != -1)
                     session.ReleaseStatement();
             if (physical.Asf.OutOfBandSent || !physical.Sqli.Link.IsIdle)
             {
@@ -1148,6 +1213,21 @@ public sealed class IfxConnection : DbConnection, ICloneable
 
         DbLocaleCache.TryAdd(key, locale);
         _settings.DbLocale = locale;
+        _dbLocaleWasDiscovered = true;
+        _dbEncoding = null;
+    }
+
+    // True when _settings.DbLocale was filled in by DiscoverDbLocaleIfNeeded rather than by the
+    // caller. A discovered locale belongs to the database it was looked up for, so it is dropped
+    // again when the database changes (see ChangeDatabase).
+    private bool _dbLocaleWasDiscovered;
+
+    private void ForgetDiscoveredDbLocale()
+    {
+        if (!_dbLocaleWasDiscovered)
+            return;
+        _settings.DbLocale = "";
+        _dbLocaleWasDiscovered = false;
         _dbEncoding = null;
     }
 

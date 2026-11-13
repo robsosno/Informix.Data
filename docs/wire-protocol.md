@@ -201,10 +201,23 @@ Immediately after the ASF accept, in this exact order
 > silently. PAM, when required, sits strictly between the two.
 
 **SQ_PROTOCOLS**: `[126][len:int16][vector, even-padded]`. The client vector is the
-8-byte constant `ff fc 7f fc 3c 8c aa 97` (verbatim from `IfxSqliConnect`); with the
-`Large Row Formats` connection keyword it is the 9-byte form `ff fc 7f fc 3c 8c aa 97 06`
-(what JDBC 15.0.1.3 sends), the extra byte asking for bits 69 and 70 below. The server
-replies with its own vector in the same shape.
+9-byte form `ff fc 7f fc 3c 8c aa 97 06` (what JDBC 15.0.1.3 sends to every server), the
+last byte asking for bits 69 and 70 below. `Large Row Formats=false` sends the older
+8-byte constant `ff fc 7f fc 3c 8c aa 97` instead. The server replies with its own vector
+in the same shape.
+
+What the two servers checked live do with it:
+
+| Server | Reply to 8 bytes | Reply to 9 bytes | Formats in use |
+|--------|------------------|------------------|----------------|
+| 14.10 (reports itself as 9.59) | `BDBE9FFE7FB7FFEFF9` — bits 69/70 clear | the same | classic either way: the ninth byte is ignored |
+| 15.0.1.0 | `BDBE9FFE7FBFFFEFFF` — bits 69/70 set | the same | whatever the client asked for |
+
+> **Trap (the 8-byte vector against Informix 15).** With the 8-byte vector, 15.0.1.0
+> answers a fetch of a DISTINCT-type result column (even `0.04::percent` from
+> `systables`) with a full fetch buffer of garbage and then stops answering on that
+> connection; the same requests after the 9-byte vector get correct tuples. This is why
+> the 9-byte vector is the default.
 
 > **Trap (bits 69/70 are negotiated, not announced).** Informix 15.0.1.0 sets bits 69
 > and 70 in its reply even when the client sent the 8-byte vector — and then keeps the
@@ -258,7 +271,7 @@ The bits that change on-wire layouts:
 | 62 | `IsRemove64KLimitSupported` | **statement text gets a 4-byte length prefix**; SQ_ERR offset is int32 |
 | 63 | `Is2GBFetchBufferSupported` | fetch-buffer size is int32 (else int16) |
 | 69 | `IsLargeTupleSize` | the tuple size in SQ_DESCRIBE / SQ_PREPARE is int32 (rows over 32 KB). Informix 15; in effect only when the client asked via the 9-byte vector — the server sets the bit either way (see the trap in §4) |
-| 70 | `IsLongRowId` | row ids and SQ_DONE / SQ_PUTERR row counts are 8 bytes; the in-tuple BYTE/TEXT descriptor grows from 56 to 68 bytes (`tb_size` moves from offset 16 to 32). Informix 15; opt-in as above. Live against 15.0.1.0: row counts and BYTE/TEXT in both directions (including NULL, §8.1) round-trip with it on |
+| 70 | `IsLongRowId` | row ids and SQ_DONE / SQ_PUTERR row counts are 8 bytes; the in-tuple BYTE/TEXT descriptor grows from 56 to 68 bytes (`tb_size` moves from offset 16 to 32). Informix 15; negotiated as above. Live against 15.0.1.0: row counts and BYTE/TEXT in both directions (including NULL, §8.1) round-trip with it on |
 
 A real 9.59 server announces 4-byte offsets, remove-64K, 2-GB fetch, fetch-array and
 var-length VARCHAR via the vector — the version ladder alone claims none of them.

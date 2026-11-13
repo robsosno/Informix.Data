@@ -72,7 +72,7 @@ The response starts with length, SL type, ignored protocol bytes, ASSOC/ASCBINAR
 
 A SQLI message is `i16 tag` plus tag-specific payload; there is no outer message length. A request is one or more messages followed by `SQ_EOT (12)` and a flush (“flip”). The response is read through `SQ_EOT` or `SQ_EXIT`. Complete request/response exchanges are serialized on the connection. Large batch operations may be split at about 32,000 bytes.
 
-Capability bits are MSB-first in each byte. The client sends `SQ_PROTOCOLS` with `FF FC 7F FC 3C 8C AA 97` (8 bytes), optionally followed by `06` for “Large Row Formats.” The server returns a length-prefixed padded vector. Effective capabilities combine server bits with version-derived bits.
+Capability bits are MSB-first in each byte. The client sends `SQ_PROTOCOLS` with `FF FC 7F FC 3C 8C AA 97 06` (9 bytes; the trailing `06` asks for the Informix 15 large-row formats), or the first 8 bytes alone with `Large Row Formats=false`. The server returns a length-prefixed padded vector. Effective capabilities combine server bits with version-derived bits.
 
 | Bit | Effect |
 |---:|---|

@@ -268,8 +268,9 @@ internal sealed class SqliSession
     /// <summary>
     /// Asks the server, during the SQ_PROTOCOLS exchange, for the Informix 15
     /// large-row wire formats (4-byte tuple size, 8-byte row ids, 68-byte blob
-    /// descriptor) by sending the ninth protocol byte. Off by default, so the
-    /// handshake is byte-identical to a driver build without this property.
+    /// descriptor) by sending the ninth protocol byte. Off unless set here;
+    /// <c>IfxConnection</c> sets it from the <c>Large Row Formats</c> keyword, which
+    /// is on by default.
     ///
     /// <para>Must be set before <see cref="BringUp"/>. Enabling it is only a
     /// request: the negotiated formats follow the server's reply, so a server that

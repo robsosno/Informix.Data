@@ -152,6 +152,36 @@ public class SqliVersionTests
     }
 
     [Fact]
+    public void Large_row_formats_are_requested_by_default_and_can_be_switched_off()
+    {
+        Assert.True(new IfxConnectionStringBuilder("Host=h;Service=9088;Database=db").LargeRowFormats);
+        Assert.False(new IfxConnectionStringBuilder(
+            "Host=h;Service=9088;Database=db;Large Row Formats=false").LargeRowFormats);
+    }
+
+    [Theory]
+    [InlineData(null, 9)]
+    [InlineData("Large Row Formats=true", 9)]
+    [InlineData("Large Row Formats=false", 8)]
+    public void A_connection_sends_the_nine_byte_vector_unless_large_row_formats_are_off(
+        string? setting, int expectedLength)
+    {
+        // What IfxConnection puts on the wire, not just what the builder reports: the
+        // nine-byte form is the default because Informix 15.0.1.0 mishandles DISTINCT
+        // columns for a client that sent the eight-byte one, and 14.10 ignores the extra byte.
+        using var cn = SqliStatementKit.OpenConnection([], out var duplex, setting);
+
+        byte[] sent = duplex.Output.ToArray();
+        byte[] eightBytes = [0xff, 0xfc, 0x7f, 0xfc, 0x3c, 0x8c, 0xaa, 0x97];
+        byte[] header = [0, 126, 0, (byte)expectedLength];
+        byte[] expected = expectedLength == 9
+            ? [.. header, .. eightBytes, 0x06, 0, 0, 12]   // 0x06 + pad byte, then SQ_EOT
+            : [.. header, .. eightBytes, 0, 12];
+        Assert.True(sent.AsSpan().IndexOf(expected) >= 0,
+            $"SQ_PROTOCOLS with a {expectedLength}-byte vector was not sent");
+    }
+
+    [Fact]
     public void A_server_that_does_not_grant_the_ninth_bits_leaves_both_capabilities_off()
     {
         // The captured 9.59 reply is already nine bytes long, but its ninth byte (0xf0)

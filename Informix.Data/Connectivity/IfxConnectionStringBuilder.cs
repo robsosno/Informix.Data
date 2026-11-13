@@ -355,17 +355,21 @@ public sealed class IfxConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>
     /// Asks the server for the Informix 15 large-row wire formats during the protocol
     /// handshake: a 4-byte tuple size (rows above 32 KB), 8-byte row ids, and the
-    /// 68-byte simple-large-object descriptor. Off by default, which keeps the
-    /// handshake byte-identical to a driver build without this property.
+    /// 68-byte simple-large-object descriptor. On by default — the handshake the
+    /// Informix JDBC driver 15.0.1.3 sends to every server.
     ///
-    /// <para>Only a request — the formats actually used follow the server's reply, so
-    /// enabling it against a server that does not offer them changes nothing. Requires
-    /// Informix 15 or later. Without it the classic formats are used on every server
-    /// version, even when an Informix 15 server advertises the wide ones unasked.</para>
+    /// <para>Only a request — the formats actually used follow the server's reply. A
+    /// server older than Informix 15 ignores it (14.10 replies the same either way), so
+    /// the classic formats stay in use there.</para>
+    ///
+    /// <para>Set it to <c>false</c> to send the older eight-byte handshake and keep the
+    /// classic formats on every server version. Against Informix 15.0.1.0 that is not
+    /// recommended: the server returns a corrupt fetch reply for a result column of a
+    /// DISTINCT type to a client that did not ask for the wide formats.</para>
     /// </summary>
     public bool LargeRowFormats
     {
-        get => GetBool(KeyLargeRowFormats);
+        get => GetBool(KeyLargeRowFormats, defaultValue: true);
         set => this[KeyLargeRowFormats] = value;
     }
 

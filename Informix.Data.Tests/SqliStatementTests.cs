@@ -749,6 +749,29 @@ public class SqliNonQueryTests
         var ex = Assert.Throws<IfxException>(() => cmd.ExecuteReader());
         Assert.Equal(-206, ex.IfxSqlCode);
     }
+
+    [Fact]
+    public void A_failed_open_reports_its_own_error_not_the_one_from_releasing_the_statement()
+    {
+        // The open/fetch reply is unreadable (seen live: Informix 15.0.1.0 answering the
+        // eight-byte handshake with garbage for a DISTINCT column). Releasing the statement
+        // on the way out then fails too - here the script simply ends. The caller must see
+        // the first failure; the release error used to replace it.
+        byte[] script = SqliStatementKit.Join(
+            SqliStatementKit.DescribeFrame(
+                (short)SqliStatementType.Select, stmtId: 5, tupleSize: 4,
+                new SqliStatementKit.Col("c", (short)SqliTypeCode.Int, 4, 0)),
+            SqliStatementKit.DoneFrame(),
+            SqliStatementKit.EotFrame(),
+            [0xd3, 0x00]); // not a SQLI message code
+
+        using var cn = SqliStatementKit.OpenConnection(script, out _);
+        using var cmd = cn.CreateCommand();
+        cmd.CommandText = "select c from t";
+
+        var ex = Assert.Throws<IfxException>(() => cmd.ExecuteReader());
+        Assert.Contains("-11520", ex.Message);
+    }
 }
 
 public class SqliBlobTests

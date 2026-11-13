@@ -431,6 +431,21 @@ public sealed class IfxCommand : DbCommand, ICloneable
             session.ReleaseOrCache(handle, sql, scroll, HoldCursor);
     }
 
+    // The same, while an exception from the statement is already on its way out. Releasing
+    // talks to the server, and after a broken reply or a dropped connection it fails too;
+    // that second failure must not replace the first, which is the one that says what
+    // went wrong. The next use of the connection reports the broken state on its own.
+    private void EndStatementUseAfterFailure(SqliSession session, SqliStatementHandle handle, string sql, bool scroll, bool stalePlan)
+    {
+        try
+        {
+            EndStatementUse(session, handle, sql, scroll, stalePlan);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
     private int _lastSerial;
     private long _lastSerial8;
     private long _lastBigSerial;
@@ -659,7 +674,7 @@ public sealed class IfxCommand : DbCommand, ICloneable
         }
 
         var (handle, mustRelease) = AcquireStatement(session, sql, binds.Count);
-        bool stalePlan = false;
+        int affected;
         try
         {
             if (session.DescribesResultSet)
@@ -670,31 +685,40 @@ public sealed class IfxCommand : DbCommand, ICloneable
                 session.OpenCursor(binds.Count > 0 ? binds : null);
                 try
                 {
-                    if (!session.NextRow())
-                        return 0;
-                    PopulateOutputParameters(session);
-                    return 1;
+                    affected = session.NextRow() ? 1 : 0;
+                    if (affected == 1)
+                        PopulateOutputParameters(session);
                 }
-                finally
+                catch
                 {
-                    session.CloseCursor();
+                    // Keep the fetch error; a close that fails after it adds nothing.
+                    try { session.CloseCursor(); } catch (Exception) { }
+                    throw;
                 }
+                session.CloseCursor();
             }
-
-            session.ExecuteStatement(binds.Count > 0 ? binds : null);
-            _connection?.RaiseInfoMessage(session.Warnings, session.Diagnostics);
-            return session.RowsProcessed;
+            else
+            {
+                session.ExecuteStatement(binds.Count > 0 ? binds : null);
+                _connection?.RaiseInfoMessage(session.Warnings, session.Diagnostics);
+                affected = session.RowsProcessed;
+            }
         }
         catch (IfxException ex) when (ex.IfxSqlCode == StalePlanSqlCode)
         {
-            stalePlan = true;
+            if (mustRelease)
+                EndStatementUseAfterFailure(session, handle, sql, scroll: false, stalePlan: true);
             throw;
         }
-        finally
+        catch
         {
             if (mustRelease)
-                EndStatementUse(session, handle, sql, scroll: false, stalePlan);
+                EndStatementUseAfterFailure(session, handle, sql, scroll: false, stalePlan: false);
+            throw;
         }
+        if (mustRelease)
+            EndStatementUse(session, handle, sql, scroll: false, stalePlan: false);
+        return affected;
     }
 
     /// <summary>First column of the first row, or null when there are no rows. Rides the normal cursor path (see docs/msg_flow.md).</summary>
@@ -778,23 +802,28 @@ public sealed class IfxCommand : DbCommand, ICloneable
         if (!session.DescribesResultSet)
         {
             // ExecuteReader over a non-SELECT: run it and hand back an empty reader.
-            bool stalePlan = false;
+            int rowsProcessed;
             try
             {
                 session.ExecuteStatement(binds.Count > 0 ? binds : null);
                 FirstResponse(activity);
-                return new IfxDataReader(new SqliEmptyCursor(session.RowsProcessed), onClose, _connection, activity);
+                rowsProcessed = session.RowsProcessed;
             }
             catch (IfxException ex) when (ex.IfxSqlCode == StalePlanSqlCode)
             {
-                stalePlan = true;
+                if (mustRelease)
+                    EndStatementUseAfterFailure(session, handle, sql, scroll: false, stalePlan: true);
                 throw;
             }
-            finally
+            catch
             {
                 if (mustRelease)
-                    EndStatementUse(session, handle, sql, scroll: false, stalePlan);
+                    EndStatementUseAfterFailure(session, handle, sql, scroll: false, stalePlan: false);
+                throw;
             }
+            if (mustRelease)
+                EndStatementUse(session, handle, sql, scroll: false, stalePlan: false);
+            return new IfxDataReader(new SqliEmptyCursor(rowsProcessed), onClose, _connection, activity);
         }
 
         bool singleRow = behavior.HasFlag(CommandBehavior.SingleRow);
@@ -807,13 +836,13 @@ public sealed class IfxCommand : DbCommand, ICloneable
         catch (IfxException ex) when (ex.IfxSqlCode == StalePlanSqlCode)
         {
             if (mustRelease)
-                EndStatementUse(session, handle, sql, scroll: false, stalePlan: true);
+                EndStatementUseAfterFailure(session, handle, sql, scroll: false, stalePlan: true);
             throw;
         }
         catch
         {
             if (mustRelease)
-                EndStatementUse(session, handle, sql, scroll: false, stalePlan: false);
+                EndStatementUseAfterFailure(session, handle, sql, scroll: false, stalePlan: false);
             throw;
         }
         FirstResponse(activity);
@@ -894,13 +923,13 @@ public sealed class IfxCommand : DbCommand, ICloneable
                 catch (IfxException ex) when (ex.IfxSqlCode == StalePlanSqlCode)
                 {
                     if (mustRelease)
-                        EndStatementUse(session, handle, sql, scroll: true, stalePlan: true);
+                        EndStatementUseAfterFailure(session, handle, sql, scroll: true, stalePlan: true);
                     throw;
                 }
                 catch
                 {
                     if (mustRelease)
-                        EndStatementUse(session, handle, sql, scroll: true, stalePlan: false);
+                        EndStatementUseAfterFailure(session, handle, sql, scroll: true, stalePlan: false);
                     throw;
                 }
             }

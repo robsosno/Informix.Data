@@ -174,7 +174,7 @@ internal sealed class SqliSession
     /// <summary>Width of the in-tuple BYTE/TEXT descriptor for this session's negotiated layout.</summary>
     internal int BlobDescriptorWidth =>
         Capabilities.IsLongRowId ? BlobDescriptorSizeLong : BlobDescriptorSize;
-    private const short BlobIsNull = 1; // IfxBlob.BLOBISNULL (tb_flags value for a NULL blob)
+    private const short BlobIsNull = 1; // IfxBlob.BLOBISNULL (the tb_flags bit that marks a NULL blob)
     private byte[]? _blobBuffer;
     private int _blobWriteOffset;
     // Per-row cache of already-fetched blob columns so repeated GetValue/GetBytes
@@ -1367,7 +1367,7 @@ internal sealed class SqliSession
     /// Fetches one simple large object (BYTE/TEXT) by echoing its in-tuple
     /// descriptor back to the server in SQ_FETCHBLOB and collecting the SQ_BLOB
     /// data frames into a buffer. Returns <c>null</c> when the
-    /// descriptor's <c>tb_flags</c> is <see cref="BlobIsNull"/> (SQL NULL) — no
+    /// descriptor's <c>tb_flags</c> has the <see cref="BlobIsNull"/> bit (SQL NULL) — no
     /// round trip is made in that case.
     /// </summary>
     private byte[]? FetchBlob(ReadOnlySpan<byte> descriptor)
@@ -1375,9 +1375,12 @@ internal sealed class SqliSession
         using var gate = _link.Gate.EnterScope();
         // IfxBlob.fromIfx layout: tb_start = int32 @8, tb_end = int32 @12,
         // tb_size = int32 @16, tb_flags = int16 @38. A NULL blob is signalled by
-        // tb_flags == BLOBISNULL (the server sets bytes[38..40) to 00 01).
+        // the BLOBISNULL bit of tb_flags, tested as a bit like IfxBlob.fromIfx does
+        // (tb_flags & 1): the classic layout sends 00 01 for NULL, but the 68-byte
+        // layout of Informix 15 sends 00 21 — the same bit plus 0x20 — and asking
+        // the server for such a blob fails with -19986.
         short tbFlags = (short)((descriptor[38] << 8) | descriptor[39]);
-        if (tbFlags == BlobIsNull)
+        if ((tbFlags & BlobIsNull) != 0)
             return null;
 
         int tbStart = IfxWireConverter.ReadInt32(descriptor.Slice(8, 4));

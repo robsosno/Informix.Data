@@ -258,7 +258,7 @@ The bits that change on-wire layouts:
 | 62 | `IsRemove64KLimitSupported` | **statement text gets a 4-byte length prefix**; SQ_ERR offset is int32 |
 | 63 | `Is2GBFetchBufferSupported` | fetch-buffer size is int32 (else int16) |
 | 69 | `IsLargeTupleSize` | the tuple size in SQ_DESCRIBE / SQ_PREPARE is int32 (rows over 32 KB). Informix 15; in effect only when the client asked via the 9-byte vector — the server sets the bit either way (see the trap in §4) |
-| 70 | `IsLongRowId` | row ids and SQ_DONE / SQ_PUTERR row counts are 8 bytes; the in-tuple BYTE/TEXT descriptor grows from 56 to 68 bytes (`tb_size` moves from offset 16 to 32). Informix 15; opt-in as above. Live against 15.0.1.0 a plain query round-trips with it on; the BYTE/TEXT descriptor path is not yet exercised |
+| 70 | `IsLongRowId` | row ids and SQ_DONE / SQ_PUTERR row counts are 8 bytes; the in-tuple BYTE/TEXT descriptor grows from 56 to 68 bytes (`tb_size` moves from offset 16 to 32). Informix 15; opt-in as above. Live against 15.0.1.0: row counts and BYTE/TEXT in both directions (including NULL, §8.1) round-trip with it on |
 
 A real 9.59 server announces 4-byte offsets, remove-64K, 2-GB fetch, fetch-array and
 var-length VARCHAR via the vector — the version ladder alone claims none of them.
@@ -547,6 +547,15 @@ A BYTE/TEXT column's in-row footprint is a fixed **56-byte descriptor** (that is
 literally its `syscolumns.collength`): `tb_start:int32@8`, `tb_end:int32@12`,
 `tb_size:int32@16`, `tb_flags:int16@38`; data length = `tb_end - tb_start + 1`;
 **`tb_flags & 1` (BLOBISNULL) ⇒ SQL NULL — do not fetch, or the server blocks.**
+
+With bit 70 (`IsLongRowId`, §4.1) negotiated the descriptor is **68 bytes** and `tb_size`
+sits at offset 32; `tb_start`, `tb_end` and `tb_flags` keep their offsets. Everything below
+applies unchanged with 68 in place of 56.
+
+> **Trap (test the bit, not the word).** In the 68-byte layout Informix 15.0.1.0 sets an
+> extra `0x20` in `tb_flags`: a NULL arrives as `00 21` (classic: `00 01`), a value as
+> `02 28` (classic: `02 08`). Comparing the word to 1 misses the NULL, and the
+> SQ_FETCHBLOB that follows fails with **-19986**.
 
 **Read** is a lazy separate round trip per value:
 

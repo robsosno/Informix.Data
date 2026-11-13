@@ -148,14 +148,16 @@ internal static class SqliStatementKit
     /// <summary>
     /// A 56-byte in-tuple BYTE/TEXT descriptor in the <c>IfxBlob.fromIfx</c> layout:
     /// tb_start=int32 @8, tb_end=int32 @12, tb_size=int32 @16, tb_flags=int16 @38.
-    /// A NULL blob sets tb_flags to <c>BLOBISNULL</c> (1).
+    /// A NULL blob sets the <c>BLOBISNULL</c> bit (1) of tb_flags; <paramref name="nullFlags"/>
+    /// is the whole flags word a NULL descriptor carries (the server may set other bits too).
     /// </summary>
-    public static byte[] BlobDescriptor(int length, bool isNull = false)
+    public static byte[] BlobDescriptor(int length, bool isNull = false, short nullFlags = 1)
     {
         var d = new byte[56];
         if (isNull)
         {
-            d[39] = 1; // int16 @38 == 1 (BLOBISNULL)
+            d[38] = (byte)(nullFlags >> 8);
+            d[39] = (byte)nullFlags; // int16 @38, BLOBISNULL = bit 0x0001
             return d;
         }
         IfxWireConverter.WriteInt32(d.AsSpan(8, 4), 1);       // tb_start
@@ -834,6 +836,30 @@ public class SqliBlobTests
         byte[] script = BlobSelectScript(
             (short)SqliTypeCode.Text,
             SqliStatementKit.BlobDescriptor(0, isNull: true));
+
+        using var cn = SqliStatementKit.OpenConnection(script, out var duplex);
+        using var cmd = cn.CreateCommand();
+        cmd.CommandText = "select cat_descr from catalog";
+        using var r = cmd.ExecuteReader();
+
+        Assert.True(r.Read());
+        long before = duplex.Output.Length;
+        Assert.True(r.IsDBNull(0));
+        Assert.Equal(DBNull.Value, r.GetValue(0));
+        Assert.Equal(before, duplex.Output.Length); // nothing sent: no SQ_FETCHBLOB
+        Assert.False(r.Read());
+    }
+
+    [Fact]
+    public void Null_blob_is_recognised_when_tb_flags_carries_other_bits_too()
+    {
+        // Informix 15.0.1.0 marks a NULL BYTE/TEXT with tb_flags 0x0021 in its 68-byte
+        // descriptor: BLOBISNULL plus 0x20. Comparing the word to 1 missed it, and the
+        // SQ_FETCHBLOB that followed came back as -19986. Only the flags word is the
+        // point here, so the frames stay in the classic 56-byte shape.
+        byte[] script = BlobSelectScript(
+            (short)SqliTypeCode.Text,
+            SqliStatementKit.BlobDescriptor(0, isNull: true, nullFlags: 0x0021));
 
         using var cn = SqliStatementKit.OpenConnection(script, out var duplex);
         using var cmd = cn.CreateCommand();

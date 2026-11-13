@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Informix.Data.Tests/Informix.Data.Tests.csproj" />
+  <Project Path="Informix.Data/Informix.Data.csproj" />
+</Solution>

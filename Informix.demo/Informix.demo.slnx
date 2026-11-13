@@ -1,0 +1,48 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/01-data/" />
+  <Folder Name="/01-data/loader/">
+    <Project Path="01-data/loader/SuperstoreLoader.csproj" />
+  </Folder>
+  <Folder Name="/02-native/">
+    <Project Path="02-native/Bson/Bson.csproj" />
+    <Project Path="02-native/Connect/Connect.csproj" />
+    <Project Path="02-native/ConnectionPooling/ConnectionPooling.csproj" />
+    <Project Path="02-native/Cursors/Cursors.csproj" />
+    <Project Path="02-native/DateTimeTypes/DateTimeTypes.csproj" />
+    <Project Path="02-native/Diagnostics/Diagnostics.csproj" />
+    <Project Path="02-native/GeneratedKeys/GeneratedKeys.csproj" />
+    <Project Path="02-native/Load/Load.csproj" />
+    <Project Path="02-native/LobStreaming/LobStreaming.csproj" />
+    <Project Path="02-native/NamedParameters/NamedParameters.csproj" />
+    <Project Path="02-native/ObjectRelational/ObjectRelational.csproj" />
+    <Project Path="02-native/ReadOnlyAccess/ReadOnlyAccess.csproj" />
+    <Project Path="02-native/Schema/Schema.csproj" />
+    <Project Path="02-native/Transactions/Transactions.csproj" />
+    <Project Path="02-native/Unload/Unload.csproj" />
+    <Project Path="02-native/UnloadFromProcedure/UnloadFromProcedure.csproj" />
+  </Folder>
+  <Folder Name="/03-abstraction/">
+    <Project Path="03-abstraction/DataSetAdapter/DataSetAdapter.csproj" />
+    <Project Path="03-abstraction/GenericBatch/GenericBatch.csproj" />
+    <Project Path="03-abstraction/GenericLobStreams/GenericLobStreams.csproj" />
+    <Project Path="03-abstraction/GenericReader/GenericReader.csproj" />
+    <Project Path="03-abstraction/GenericReadOnly/GenericReadOnly.csproj" />
+    <Project Path="03-abstraction/GenericSerial/GenericSerial.csproj" />
+    <Project Path="03-abstraction/GenericTransactions/GenericTransactions.csproj" />
+    <Project Path="03-abstraction/GenericUnload/GenericUnload.csproj" />
+    <Project Path="03-abstraction/PortableDao/PortableDao.csproj" />
+    <Project Path="03-abstraction/ProviderFactory/ProviderFactory.csproj" />
+  </Folder>
+  <Folder Name="/04-ai/">
+    <Project Path="04-ai/InformixMcp/InformixMcp.csproj" />
+  </Folder>
+  <Project Path="../Informix.Data/Informix.Data.csproj" />
+  <Project Path="Demo.Bootstrap/Demo.Bootstrap.csproj" />
+  <Project Path="Demo.Common/Demo.Common.csproj" />
+  <Project Path="Demo.Native/Demo.Native.csproj" />
+</Solution>

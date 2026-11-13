@@ -281,11 +281,11 @@ internal static class IfxParameterBinder
                 ? $"A {p.IfxType} parameter must be a JSON string (auto-encoded to BSON) or a raw byte[] (already-encoded BSON), not {p.Value.GetType()}."
                 : $"A {p.IfxType} parameter must be a string, not {p.Value.GetType()}."),
         };
-        if (payload is { Length: > short.MaxValue })
-            throw new NotSupportedException(
-                $"{p.IfxType} parameter payload of {payload.Length} bytes exceeds the driver's inline bind limit of {short.MaxValue} bytes.");
+        // No client-side size limit: the server accepts documents far above 32 KB (the sbspace is the
+        // practical ceiling and the server reports its own error). The int16 precision field is only a
+        // hint, so it is clamped; the real length travels in the int32 prefix of the payload.
         return payload is null
             ? new SqliBindValue { Type = SqliTypeCode.SendRecv, Data = null, ExtendedOwner = "informix", ExtendedTypeName = typeName }
-            : SqliBindValue.Udt(typeName, payload, precision: (short)payload.Length, owner: "informix");
+            : SqliBindValue.Udt(typeName, payload, precision: (short)Math.Min(payload.Length, short.MaxValue), owner: "informix");
     }
 }

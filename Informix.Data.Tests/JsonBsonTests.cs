@@ -201,8 +201,9 @@ public class JsonBsonTests
         b.AddRange([0, (byte)name.Length]);
         b.AddRange(IfxWireConverter.EncodeChar(name));
         b.AddRange([0, 0]); // indicator = 0 (not null)
-        b.AddRange([(byte)(payload.Length >> 8), (byte)payload.Length]); // precision, big-endian int16
-        b.AddRange([0, 0, 0, (byte)payload.Length]); // data length prefix, big-endian int32
+        int precision = Math.Min(payload.Length, short.MaxValue); // int16 hint, clamped for large payloads
+        b.AddRange([(byte)(precision >> 8), (byte)precision]); // precision, big-endian int16
+        b.AddRange([(byte)(payload.Length >> 24), (byte)(payload.Length >> 16), (byte)(payload.Length >> 8), (byte)payload.Length]); // data length prefix, big-endian int32
         b.AddRange(payload);
         return b.ToArray();
     }
@@ -287,20 +288,41 @@ public class JsonBsonTests
         Assert.Contains(Convert.ToHexString(expected), Convert.ToHexString(sent));
     }
 
-    // The payload travels inline with an int16 precision, so it is limited to 32 767 bytes; the check happens before any byte is written.
-    [Fact]
-    public void Oversized_bson_payload_throws_before_sending_anything()
+    // There is no client-side size limit: a payload above 32 767 bytes goes out whole. The int16 precision
+    // field is only a hint (clamped to short.MaxValue); the true length is the int32 prefix.
+    [Theory]
+    [InlineData(32768)]
+    [InlineData(200_000)]
+    public void Large_bson_payload_is_bound_whole_with_a_clamped_precision(int size)
     {
         using var cn = SqliStatementKit.OpenConnection(InsertScript(), out var duplex);
         long before = duplex.Output.Length;
         using var cmd = cn.CreateCommand();
         cmd.CommandText = "insert into catalog values (?)";
-        // A raw byte[] payload larger than the driver's int16 precision field can carry.
-        cmd.Parameters.Add(new IfxParameter("doc", new byte[short.MaxValue + 1]) { IfxType = IfxType.Bson });
+        byte[] payload = new byte[size];
+        for (int i = 0; i < size; i++) payload[i] = (byte)(i % 251);
+        cmd.Parameters.Add(new IfxParameter("doc", payload) { IfxType = IfxType.Bson });
 
-        var ex = Assert.Throws<NotSupportedException>(() => cmd.ExecuteNonQuery());
-        Assert.Contains("exceeds the driver's inline bind limit", ex.Message);
-        Assert.Equal(before, duplex.Output.Length); // nothing was written to the wire
+        Assert.Equal(1, cmd.ExecuteNonQuery());
+
+        byte[] sent = duplex.Output.ToArray()[(int)before..];
+        Assert.Contains(Convert.ToHexString(ExpectedUdtBind("bson", payload)), Convert.ToHexString(sent));
+    }
+
+    [Fact]
+    public void Large_json_payload_is_bound_whole()
+    {
+        using var cn = SqliStatementKit.OpenConnection(InsertScript(), out var duplex);
+        long before = duplex.Output.Length;
+        using var cmd = cn.CreateCommand();
+        cmd.CommandText = "insert into catalog values (?)";
+        string json = "{\"pad\":\"" + new string('a', 100_000) + "\"}";
+        cmd.Parameters.Add(new IfxParameter("doc", json) { IfxType = IfxType.Json });
+
+        Assert.Equal(1, cmd.ExecuteNonQuery());
+
+        byte[] sent = duplex.Output.ToArray()[(int)before..];
+        Assert.Contains(Convert.ToHexString(ExpectedUdtBind("json", System.Text.Encoding.UTF8.GetBytes(json))), Convert.ToHexString(sent));
     }
 
     [Fact]

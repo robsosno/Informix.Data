@@ -166,15 +166,15 @@ internal sealed class AsfConnection : IDisposable
     {
         for (int retryNumber = 0; ; retryNumber++)
         {
+            TcpClient? client = null;
             try
             {
-                var client = new TcpClient();
+                client = new TcpClient();
                 if (_settings.LoginTimeoutSeconds > 0)
                 {
                     if (!client.ConnectAsync(_settings.Host, _settings.Port)
                             .Wait(TimeSpan.FromSeconds(_settings.LoginTimeoutSeconds)))
                     {
-                        client.Dispose();
                         throw new TimeoutException(
                             $"Connecting to {_settings.Host}:{_settings.Port} timed out after {_settings.LoginTimeoutSeconds}s.");
                     }
@@ -210,6 +210,12 @@ internal sealed class AsfConnection : IDisposable
                 _writeStream = new BufferedStream(_transport, StreamBufferSize);  // writes
                 return;
             }
+            // Exception filter used for its side effect: a failed attempt (connect, socket options,
+            // TLS) closes its own TcpClient before the retry or the rethrow; ReleaseAttempt returns false.
+            catch (Exception) when (_tcpClient is null && ReleaseAttempt(client))
+            {
+                throw; // never reached
+            }
             catch (Exception e) when (e is SocketException or TimeoutException or AggregateException)
             {
                 if (retryNumber >= _settings.RetryCount)
@@ -225,6 +231,12 @@ internal sealed class AsfConnection : IDisposable
                 }
             }
         }
+    }
+
+    private static bool ReleaseAttempt(TcpClient? client)
+    {
+        client?.Dispose();
+        return false;
     }
 
     // Runs the client TLS handshake over the raw socket stream. With
@@ -243,7 +255,10 @@ internal sealed class AsfConnection : IDisposable
                 EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
             });
         }
-        catch (AuthenticationException e)
+        // A non-TLS reply is an AuthenticationException; a peer that drops the connection or
+        // stalls past the receive timeout mid-handshake is an IOException. Both are the same
+        // configuration/transport failure (e.g. UseSsl against a plain listener) and surface as -908.
+        catch (Exception e) when (e is AuthenticationException or IOException)
         {
             ssl.Dispose();
             throw new IfxException(

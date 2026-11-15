@@ -117,7 +117,15 @@ public sealed class IfxConnection : DbConnection, ICloneable
 
     /// <summary>Test seam: lets tests substitute an in-memory ASF transport.</summary>
     internal Func<AsfConnectionSettings, AsfConnection> AsfConnectionFactory { get; set; } =
+        DefaultAsfConnectionFactory;
+
+    internal static readonly Func<AsfConnectionSettings, AsfConnection> DefaultAsfConnectionFactory =
         static s => new AsfConnection(s);
+
+    // The test seam replaced the transport: the connection does not talk to Host/Service at all.
+    internal bool HasInjectedTransport =>
+        !ReferenceEquals(AsfConnectionFactory, DefaultAsfConnectionFactory)
+        || _boundDataSource?.HasInjectedTransport == true;
 
     /// <summary>The established ASF session; the SQLI layer builds on this.</summary>
     internal AsfConnection? AsfSession => _asf;
@@ -1200,7 +1208,9 @@ public sealed class IfxConnection : DbConnection, ICloneable
     // leaves DB Locale unset and the open proceeds unchanged.
     private void DiscoverDbLocaleIfNeeded()
     {
-        if (!IsDbLocaleDiscoveryNeeded)
+        // With an injected (test) transport the helper below would dial the connection
+        // string's real Host/Service instead of that transport -- a different "server".
+        if (!IsDbLocaleDiscoveryNeeded || HasInjectedTransport)
             return;
 
         string database = _settings.Database;
@@ -1235,6 +1245,7 @@ public sealed class IfxConnection : DbConnection, ICloneable
     // locale) and reads the target database's collation code set from sysdbslocale.
     private string? QueryDbLocaleFromSysmaster(string database)
     {
+        bool opened = false;
         try
         {
             var b = new IfxConnectionStringBuilder(_settings.ConnectionString)
@@ -1252,6 +1263,7 @@ public sealed class IfxConnection : DbConnection, ICloneable
             };
             using var helper = new IfxConnection(b.ConnectionString) { PamHandler = PamHandler };
             helper.Open();
+            opened = true;
             using var cmd = helper.CreateCommand();
             cmd.CommandText = "SELECT TRIM(dbs_collate) FROM sysdbslocale WHERE TRIM(dbs_dbsname) = ?";
             var p = cmd.CreateParameter();
@@ -1260,9 +1272,12 @@ public sealed class IfxConnection : DbConnection, ICloneable
             string? locale = (cmd.ExecuteScalar() as string)?.Trim();
             return string.IsNullOrEmpty(locale) ? null : locale;
         }
-        catch
+        // A helper that could not even reach the server (-908: refused, timed out, TLS or
+        // handshake failure) is not swallowed: the real connection goes to the same host and
+        // port and would only fail the same way after a second full Login Timeout.
+        catch (Exception e) when (opened || e is not IfxException { IfxSqlCode: -908 })
         {
-            // Best-effort: sysmaster unreachable / no permission / no such database.
+            // Best-effort: no permission / no such database / the lookup query failed.
             return null;
         }
     }

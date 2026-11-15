@@ -91,6 +91,99 @@ public class TlsTransportTests
         }
     }
 
+    // A TLS handshake that fails at the transport level (the peer drops the connection, answers
+    // with non-TLS bytes, or stalls past the receive timeout) is the same configuration mistake as
+    // a rejected certificate (UseSsl against a plain listener, or the reverse): -908, socket closed.
+
+    [Fact]
+    public Task Connect_fails_with_908_when_the_server_answers_the_tls_handshake_with_non_tls_bytes()
+        => AssertTlsHandshakeFailsWith908(async (client, net) =>
+        {
+            var buf = new byte[4096];
+            _ = await net.ReadAsync(buf);                                  // the ClientHello
+            await net.WriteAsync(new byte[] { 0, 6, 9, 0, 0, 0, 1, 2 });   // not a TLS record
+            await net.FlushAsync();
+            client.Client.Shutdown(SocketShutdown.Send);
+            while (await net.ReadAsync(buf) > 0) { }
+        });
+
+    [Fact]
+    public Task Connect_fails_with_908_when_the_server_closes_the_connection_during_the_tls_handshake()
+        => AssertTlsHandshakeFailsWith908((client, net) => Task.CompletedTask); // closed right after accept
+
+    [Fact]
+    public async Task Connect_fails_with_908_when_the_tls_handshake_runs_into_the_receive_timeout()
+    {
+        using var serverDone = new ManualResetEventSlim();
+        var (listener, serverTask) = StartRawServer((client, net) => Task.Run(() => serverDone.Wait(10000))); // never answers
+        try
+        {
+            using var conn = new AsfConnection(new AsfConnectionSettings
+            {
+                Host = "127.0.0.1",
+                Port = ((IPEndPoint)listener.LocalEndpoint).Port,
+                UserName = "usr",
+                Password = "pwd",
+                ServerName = "ol_ssl",
+                DatabaseName = "db",
+                UseSsl = true,
+                TrustServerCertificate = true,
+                SocketTimeoutSeconds = 1,
+            });
+
+            var ex = Assert.Throws<IfxException>(() => conn.Connect());
+            Assert.Equal(-908, ex.IfxSqlCode);
+            Assert.IsAssignableFrom<IOException>(ex.InnerException);
+            Assert.False(conn.IsConnected);
+        }
+        finally
+        {
+            serverDone.Set();
+            listener.Stop();
+            await Task.WhenAny(serverTask, Task.Delay(2000));
+        }
+    }
+
+    private static async Task AssertTlsHandshakeFailsWith908(Func<TcpClient, NetworkStream, Task> serve)
+    {
+        var (listener, serverTask) = StartRawServer(serve);
+        try
+        {
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            using var conn = new AsfConnection(TlsSettings(port, trust: true));
+
+            var ex = Assert.Throws<IfxException>(() => conn.Connect());
+            Assert.Equal(-908, ex.IfxSqlCode);
+            Assert.False(conn.IsConnected);
+        }
+        finally
+        {
+            listener.Stop();
+            await Task.WhenAny(serverTask, Task.Delay(2000));
+        }
+    }
+
+    // A one-shot loopback server that speaks no TLS: runs serve on the accepted connection, then closes it.
+    private static (TcpListener listener, Task serverTask) StartRawServer(Func<TcpClient, NetworkStream, Task> serve)
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var serverTask = Task.Run(async () =>
+        {
+            try
+            {
+                using var client = await listener.AcceptTcpClientAsync();
+                await using var net = client.GetStream();
+                await serve(client, net);
+            }
+            catch
+            {
+                // the client aborts its side; nothing to assert here
+            }
+        });
+        return (listener, serverTask);
+    }
+
     private static AsfConnectionSettings TlsSettings(int port, bool trust) => new()
     {
         Host = "127.0.0.1",

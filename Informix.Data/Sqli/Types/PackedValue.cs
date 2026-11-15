@@ -557,7 +557,9 @@ internal sealed class PackedValue
     /// Decodes a DATETIME value. Returns
     /// <c>null</c> for SQL NULL or when the value was not read as a DATETIME.
     /// Missing leading fields default the Informix way: year 1700, the current
-    /// month, day 1.
+    /// month, day 1. A value without a month whose day does not exist in the current
+    /// month (DAY TO ... with day 29-31) falls back to January, so the read does not
+    /// depend on the date it runs on.
     /// </summary>
     public DateTime? ToDateTime()
     {
@@ -570,7 +572,11 @@ internal sealed class PackedValue
         if (t[0] == 0)
             t[0] = 1700;
         if (t[1] == 0)
+        {
             t[1] = DateTime.Now.Month;
+            if (t[2] > DateTime.DaysInMonth(t[0], t[1]))
+                t[1] = 1; // January has every day 1-31
+        }
         if (t[2] == 0)
             t[2] = 1;
 

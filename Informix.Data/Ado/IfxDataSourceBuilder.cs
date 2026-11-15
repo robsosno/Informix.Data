@@ -25,7 +25,7 @@ public sealed class IfxDataSourceBuilder
 
     /// <summary>Test seam: substitutes the ASF transport for the data source's connections.</summary>
     internal Func<AsfConnectionSettings, AsfConnection> AsfConnectionFactory { get; set; } =
-        static s => new AsfConnection(s);
+        IfxConnection.DefaultAsfConnectionFactory;
 
     /// <summary>Starts a builder from an optional connection string.</summary>
     public IfxDataSourceBuilder(string? connectionString = null)

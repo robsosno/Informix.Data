@@ -67,6 +67,7 @@ public sealed class IfxDataSource : DbDataSource
         {
             AsfConnectionFactory = builder.AsfConnectionFactory,
         };
+        HasInjectedTransport = template.HasInjectedTransport;
 
         // One metrics reporter per data source (disposed with it). It tags with this
         // data source's Name and reads its pool Statistics for the observable gauges;
@@ -126,6 +127,9 @@ public sealed class IfxDataSource : DbDataSource
     /// can report <see cref="IfxConnection.GetIdleConnectionsCount"/>/
     /// <see cref="IfxConnection.GetActiveConnectionsCount"/> without renting.</summary>
     internal IfxConnectionPool? Pool => _pool;
+
+    /// <summary>True when the test seam replaced the ASF transport (see <see cref="IfxDataSourceBuilder.AsfConnectionFactory"/>).</summary>
+    internal bool HasInjectedTransport { get; }
 
     /// <summary>
     /// A snapshot of the pool: total physical connections, how many are idle, and how
@@ -207,7 +211,7 @@ public sealed class IfxDataSource : DbDataSource
         // (DisposeAsync -> Dispose(false)); the pool only holds managed resources.
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            _pool?.Clear();
+            _pool?.Shutdown();
             _metrics.Dispose(); // unregister from the observable-gauge reporter list
         }
         base.Dispose(disposing);

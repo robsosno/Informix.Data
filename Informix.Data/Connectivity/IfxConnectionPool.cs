@@ -71,6 +71,7 @@ internal sealed class IfxConnectionPool
     private int _total;                                // physical connections created but not disposed
     // Incremented by Clear(). Busy connections of an older generation are retired when they come back.
     private int _generation;                           // bumped by Clear() to retire live connections
+    private int _shutdown;                             // 1 once Shutdown() stopped the pruner
 
     public IfxConnectionPool(int minSize, int maxSize, int lifetimeSeconds, PhysicalFactory factory,
         IfxLoggingConfiguration? logging = null, IfxMetricsReporter? metrics = null)
@@ -90,6 +91,7 @@ internal sealed class IfxConnectionPool
     // Test/inspection aids.
     public int IdleCount => _idle.Count;
     public int TotalCount => Volatile.Read(ref _total);
+    public bool IsPruning => _pruneTimer is not null && Volatile.Read(ref _shutdown) == 0;
 
     // Min Pool Size: pre-create idle connections (best effort — a server that refuses the
     // warm-up connections just leaves the pool to fill on demand).
@@ -239,6 +241,18 @@ internal sealed class IfxConnectionPool
         Interlocked.Increment(ref _generation);
         while (_idle.TryPop(out var pooled))
             Retire(pooled, "pool-clear");
+    }
+
+    /// <summary>
+    /// Shuts the pool down for good (its owning data source was disposed): stops the idle
+    /// pruner, whose timer would otherwise keep firing and keep the pool reachable, then
+    /// <see cref="Clear"/>s it. Connections still checked out are retired when returned.
+    /// </summary>
+    public void Shutdown()
+    {
+        Interlocked.Exchange(ref _shutdown, 1);
+        _pruneTimer?.Dispose();
+        Clear();
     }
 }
 

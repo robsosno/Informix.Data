@@ -254,6 +254,25 @@ public class PackedDateTimeTests
         Assert.Equal(1, result.Value.Day);     // Informix default for a missing day
     }
 
+    // A DAY TO ... value has no month; the current month is the default, but day 29-31 must not
+    // make the read throw in a month that has fewer days (e.g. day 31 read in November).
+    [Theory]
+    [InlineData(29)]
+    [InlineData(30)]
+    [InlineData(31)]
+    public void Day_to_second_with_a_late_day_decodes_in_any_month(int day)
+    {
+        short d2s = IfxQualifier.ForDateTime(IfxTimeUnit.Day, IfxTimeUnit.Second);
+        var d = PackedValue.FromDateTime(new DateTime(2000, 1, day, 12, 34, 56), d2s);
+        var back = PackedValue.FromWire(d.ToWireBytes().AsSpan(2), d2s, isDateTime: true);
+
+        DateTime result = back.ToDateTime()!.Value;
+        Assert.Equal(day, result.Day);
+        Assert.Equal(new TimeSpan(12, 34, 56), result.TimeOfDay);
+        Assert.Equal(1700, result.Year);
+        Assert.True(result.Month == DateTime.Now.Month || result.Month == 1);
+    }
+
     [Fact]
     public void Null_datetime_decodes_as_null()
     {

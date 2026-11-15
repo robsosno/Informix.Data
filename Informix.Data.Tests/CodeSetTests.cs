@@ -5,6 +5,66 @@ using Xunit;
 
 namespace Informix.Data.Tests;
 
+public class CodeSetAndLocaleDiscoveryRegressionTests
+{
+    // DB locale discovery opens a helper connection first. When that helper cannot reach the server
+    // at all (-908), Open fails right there instead of swallowing it and dialling the same host and
+    // port a second time (which doubled Login Timeout against an unreachable server).
+    [Fact]
+    public async Task Open_does_not_dial_twice_when_locale_discovery_cannot_reach_the_server()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int accepts = 0;
+        var acceptLoop = Task.Run(async () =>
+        {
+            try
+            {
+                while (true)
+                {
+                    using var client = await listener.AcceptTcpClientAsync();
+                    Interlocked.Increment(ref accepts);
+                    client.Client.Close(); // drop it before the ASF handshake completes
+                }
+            }
+            catch
+            {
+                // listener stopped
+            }
+        });
+        try
+        {
+            int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+            using var cn = new IfxConnection(
+                $"Host=127.0.0.1;Service={port};Server=ol_test;Database=db;User ID=usr;Password=pwd;Pooling=false");
+            Assert.True(cn.IsDbLocaleDiscoveryNeeded);
+
+            var ex = Assert.Throws<IfxException>(() => cn.Open());
+            Assert.Equal(-908, ex.IfxSqlCode);
+            await Task.Delay(500); // let a (wrong) second connection reach the accept loop
+            Assert.Equal(1, Volatile.Read(ref accepts));
+        }
+        finally
+        {
+            listener.Stop();
+            await Task.WhenAny(acceptLoop, Task.Delay(2000));
+        }
+    }
+
+    // UTF-7 is a name .NET knows but refuses (Encoding.GetEncoding throws NotSupportedException,
+    // not ArgumentException): it must resolve as an unknown code set (Latin-1), not escape.
+    [Theory]
+    [InlineData("en_us.65000")]
+    [InlineData("en_us.utf-7")]
+    [InlineData("utf-7")]
+    [InlineData("en_us.unicode-1-1-utf-7")]
+    public void Utf7_is_treated_as_an_unknown_code_set(string locale)
+    {
+        Assert.Null(IfxCodeSet.TryResolve(locale));
+        Assert.Equal(Encoding.Latin1.CodePage, IfxCodeSet.Resolve(locale).CodePage);
+    }
+}
+
 /// <summary>
 /// Covers the Informix locale / code-set → .NET <see cref="Encoding"/> mapping and its
 /// wiring into <see cref="IfxConnection"/>, so a non-default DB_LOCALE (e.g.

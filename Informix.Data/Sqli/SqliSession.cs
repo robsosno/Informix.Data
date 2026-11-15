@@ -2372,8 +2372,13 @@ internal sealed class SqliSession
     // SQ_LODATA subcommand 2 (write): sendLoData(subCom 2 = LO_WRITE): the header,
     // then the payload streamed as [size:int16][padded bytes] chunks capped at
     // 32000. The ack is an SQ_LODATA reply with opType 2 + the written count.
+    // A zero-length write is answered locally: the server never acknowledges an LO_WRITE of
+    // 0 bytes (live-measured: the exchange hangs past any CommandTimeout), and writing nothing
+    // changes neither the object nor its seek position.
     private int LoWrite(int fd, byte[] data)
     {
+        if (data.Length == 0)
+            return 0;
         using var gate = _link.Gate.EnterScope();
         _out.WriteInt16((short)SqliMessage.LoData);
         _out.WriteInt16(2); // LO_WRITE

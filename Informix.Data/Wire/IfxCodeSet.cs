@@ -85,8 +85,9 @@ internal static class IfxCodeSet
             return GetCodePage(numeric);
 
         // Last resort: let .NET try the code-set name verbatim ("iso-8859-2", "windows-1250").
+        // NotSupportedException: a name .NET knows but refuses (UTF-7 and its aliases).
         try { return Encoding.GetEncoding(codeset); }
-        catch (ArgumentException) { return null; }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException) { return null; }
     }
 
     // The code set is the token after the last '.', with any '@modifier' stripped.

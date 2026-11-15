@@ -91,6 +91,20 @@ public class DataSourceTests
     }
 
     [Fact]
+    public void Dispose_stops_the_idle_pruning_timer()
+    {
+        // Connection Lifetime > 0 starts the pool's prune timer; a timer left running would
+        // keep firing and keep the disposed source's pool reachable for good.
+        var source = Source(BaseCs + ";Connection Lifetime=60", BringUp());
+        var pool = source.Pool!;
+        Assert.True(pool.IsPruning);
+
+        source.Dispose();
+
+        Assert.False(pool.IsPruning);
+    }
+
+    [Fact]
     public void Dispose_blocks_new_opens_but_a_checked_out_connection_can_still_close()
     {
         var source = Source(BaseCs, BringUp());

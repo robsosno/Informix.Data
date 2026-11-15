@@ -95,8 +95,8 @@ internal sealed class IfxIntervalDayFraction : IfxInterval
         new(Seconds * TimeSpan.TicksPerSecond + NanoSeconds / 100);
 
     /// <summary>
-    // Formats only the fields between the qualifier's start and end codes, with two-digit zero padding, then trims
-    // leading zeros of the first field to blanks as the server's text form does.
+    /// Formats only the fields between the qualifier's start and end codes, with two-digit zero padding, then trims
+    /// leading zeros of the first field to blanks as the server's text form does.
     /// </summary>
     public override string ToString()
     {

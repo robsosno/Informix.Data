@@ -13,7 +13,7 @@ namespace Informix.Data.Sqli;
 /// ladder (<c>getServerVer</c>) provides the base line, then the SQ_PROTOCOLS
 /// reply vector ORs in the higher feature bits (4-byte offsets, 64K limit
 /// removal, 2GB fetch, var-length VARCHAR) via
-/// <see cref="ApplyServerProtocol"/>.
+/// <see cref="ApplyServerProtocol"/>.</para>
 /// </summary>
 internal sealed class SqliCapabilities
 {

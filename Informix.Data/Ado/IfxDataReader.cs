@@ -105,7 +105,7 @@ public sealed class IfxDataReader : DbDataReader, IDbColumnSchemaGenerator
     }
 
     /// <summary>
-    /// For a reader spanning an <see cref="IfxBatch"/> (see <see cref="IfxBatch.ExecuteReader()"/>),
+    /// For a reader spanning an <see cref="IfxBatch"/> (see <see cref="IfxBatch.ExecuteReader"/>),
     /// closes the current command's cursor/statement and runs the next command, returning
     /// true when it produced a new current result set. False (and no further effect) for
     /// every other reader — a single <see cref="IfxCommand"/> execution never spans.

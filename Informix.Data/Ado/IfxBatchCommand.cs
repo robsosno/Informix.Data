@@ -59,7 +59,7 @@ public sealed class IfxBatchCommand : DbBatchCommand
     /// <summary>
     /// The number of rows this command affected, or the one row a
     /// <see cref="CommandType.StoredProcedure"/> RETURNING routine's output describes,
-    /// filled in after <see cref="IfxBatch.ExecuteNonQuery"/>/<see cref="IfxBatch.ExecuteReader()"/>
+    /// filled in after <see cref="IfxBatch.ExecuteNonQuery"/>/<see cref="IfxBatch.ExecuteReader"/>
     /// runs it. <c>-1</c> before execution, and for a command whose result is a plain
     /// result set (a SELECT read through the batch's spanning reader).
     /// </summary>

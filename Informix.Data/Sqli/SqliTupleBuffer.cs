@@ -124,9 +124,9 @@ internal sealed class SqliTupleBuffer
     internal void Advance() => _curRow++;
 
     /// <summary>
-    // Computes offset and length of every field of the current row. Widths: VARCHAR is a length byte + data (or its
-    // declared maximum when the server does not send actual lengths); LVARCHAR/LOB/JSON/BSON/UDT/BOOL are
-    // [flag:1][len:int32][data]; ROW/collections are [len:int32][data] without a flag byte; everything else is fixed.
+    /// Computes offset and length of every field of the current row. Widths: VARCHAR is a length byte + data (or its
+    /// declared maximum when the server does not send actual lengths); LVARCHAR/LOB/JSON/BSON/UDT/BOOL are
+    /// [flag:1][len:int32][data]; ROW/collections are [len:int32][data] without a flag byte; everything else is fixed.
     /// </summary>
     internal void Walk(IReadOnlyList<IfxColumnMetadata> columns, SqliCapabilities caps)
     {

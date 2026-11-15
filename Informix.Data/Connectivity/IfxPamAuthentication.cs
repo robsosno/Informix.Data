@@ -54,7 +54,7 @@ public sealed class IfxPamResponse
 /// Supplies answers to Informix PAM challenges. Plug a custom handler into
 /// <see cref="IfxConnection.PamHandler"/> for multi-factor / one-time-token schemes.
 /// </summary>
-/// interface (loaded by class name from the <c>IFX_PAM_CLASS</c> property).</remarks>
+/// <remarks>Plays the role of the JDBC driver's PAM callback interface (loaded by class name from the <c>IFX_PAM_CLASS</c> property).</remarks>
 public interface IIfxPamHandler
 {
     /// <summary>Answers a single PAM challenge. Return <see cref="IfxPamResponse.Terminate"/> to abort.</summary>

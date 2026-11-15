@@ -22,8 +22,6 @@ namespace Informix.Data;
 /// <see cref="IfxDataReader"/> via <see cref="IfxConvert"/> rather than each reader
 /// carrying its own copy.</para>
 /// </summary>
-/// <c>IfxResultSet</c> (<c>first/last/absolute/relative/previous/next</c>,
-/// <c>TYPE_SCROLL_INSENSITIVE</c>).</remarks>
 public sealed class IfxScrollReader : IDisposable
 {
     private readonly SqliScrollCursor _cursor;

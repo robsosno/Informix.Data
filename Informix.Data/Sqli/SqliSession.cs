@@ -29,7 +29,7 @@ internal sealed class SqliSession
     /// verbatim from <c>IfxSqliConnect.clientProtocols</c>. It advertises which
     /// wire features this client understands; the server replies with its own
     /// vector (including the PAM-required bit).
-    // The extended form appends 0x06 to ask for the Informix 15 large-row bits (69 and 70).
+    /// The extended form appends 0x06 to ask for the Informix 15 large-row bits (69 and 70).
     /// </summary>
     private static readonly byte[] ClientProtocols =
         [0xff, 0xfc, 0x7f, 0xfc, 0x3c, 0x8c, 0xaa, 0x97];

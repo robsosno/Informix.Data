@@ -22,7 +22,7 @@ namespace Informix.Data;
 /// (or every time, with prepared-statement caching off) — only its execute
 /// chains with the rest.</para>
 ///
-/// <para><see cref="ExecuteReader()"/> is NOT pipelined: each command opens (or
+/// <para><see cref="ExecuteReader"/> is NOT pipelined: each command opens (or
 /// runs) in its own round trip, in order, as <see cref="System.Data.Common.DbDataReader.NextResult"/>
 /// advances past the previous one — the single-open-cursor-per-session rule
 /// forces this regardless. A non-query command contributes no rows but still
@@ -30,7 +30,7 @@ namespace Informix.Data;
 ///
 /// <para><see cref="ExecuteNonQuery"/> does not run a command whose statement
 /// describes a result set (a SELECT, or a RETURNING procedure) — that needs
-/// <see cref="ExecuteReader()"/> instead, and throws identifying the offending
+/// <see cref="ExecuteReader"/> instead, and throws identifying the offending
 /// <see cref="IfxBatchCommand"/> via <see cref="DbException.BatchCommand"/>.</para>
 /// </summary>
 public sealed class IfxBatch : DbBatch
@@ -106,7 +106,7 @@ public sealed class IfxBatch : DbBatch
     /// <summary>
     /// Prepares every parameterized command through the session's prepared-statement
     /// cache (<see cref="IfxConnectionStringBuilder.PreparedStatementCacheSize"/>), so
-    /// the next <see cref="ExecuteNonQuery"/>/<see cref="ExecuteReader()"/> finds a cache
+    /// the next <see cref="ExecuteNonQuery"/>/<see cref="ExecuteReader"/> finds a cache
     /// hit for each instead of preparing it cold. With caching off this prepares and
     /// immediately releases each statement — a wasted round trip, not a mistake to make
     /// unless caching is also enabled. Parameterless, non-<see cref="CommandType.StoredProcedure"/>
@@ -141,7 +141,7 @@ public sealed class IfxBatch : DbBatch
     /// affected-row counts (0 for an empty batch), stamping each command's own
     /// <see cref="IfxBatchCommand.RecordsAffected"/> along the way. Pipelined — see the
     /// class docs. Throws (without stamping anything past the failure) if a command
-    /// describes a result set; use <see cref="ExecuteReader()"/> for those.
+    /// describes a result set; use <see cref="ExecuteReader"/> for those.
     /// </summary>
     public override int ExecuteNonQuery()
     {

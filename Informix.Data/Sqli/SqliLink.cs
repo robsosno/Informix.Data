@@ -4,7 +4,7 @@ using Informix.Data.Asf;
 namespace Informix.Data.Sqli;
 
 /// <summary>
-/// A minimal, net8.0-compatible stand-in for <see cref="System.Threading.Lock"/> (.NET 9+
+/// A minimal, net8.0-compatible stand-in for <c>System.Threading.Lock</c> (.NET 9+
 /// only — this project targets net8.0). Built on <see cref="Monitor"/>, which has always been
 /// reentrant for the owning thread, matching the semantics <see cref="SqliLink.Gate"/> needs
 /// (verified experimentally for the real <c>System.Threading.Lock</c> during design — the

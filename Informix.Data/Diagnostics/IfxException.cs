@@ -26,7 +26,7 @@ public class IfxException : DbException
         SqlState = sqlState;
     }
 
-    /// <summary><see cref="DbException.ErrorCode"/> surfaces the Informix SQLCODE.</summary>
+    /// <summary><see cref="System.Runtime.InteropServices.ExternalException.ErrorCode"/> surfaces the Informix SQLCODE.</summary>
     public override int ErrorCode => IfxSqlCode;
 
     /// <summary>

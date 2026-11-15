@@ -21,7 +21,7 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AssemblyName>Informix.Data</AssemblyName>
     <RootNamespace>Informix.Data</RootNamespace>
-    <Description>Managed ADO.NET provider for IBM Informix (SQLI protocol).</Description>
+    <Description>Experimental managed ADO.NET provider for IBM Informix (SQLI protocol).</Description>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
   </PropertyGroup>
 
@@ -46,8 +46,8 @@
     <PackageId>Informix.Data</PackageId>
     <RepositoryUrl>https://github.com/robsosno/Informix.Data</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <Authors>Informix.Data contributors</Authors>
-    <PackageDescription>Managed ADO.NET provider for IBM Informix (SQLI protocol). No CSDK, no ODBC DSN, no IBM DB2 client required.</PackageDescription>
+    <Authors>robsosno</Authors>
+    <PackageDescription>Experimental managed ADO.NET provider for IBM Informix (SQLI protocol). No CSDK, no ODBC DSN, no IBM DB2 client required.</PackageDescription>
     <PackageTags>informix;ado.net;database;driver;sqli</PackageTags>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -55,13 +55,19 @@
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PackageOutputPath>$(MSBuildThisFileDirectory)nupkg</PackageOutputPath>
+    <Copyright>Copyright (c) 2026 Robert Sosnowski</Copyright>
+    <!--
+      XML docs for IntelliSense. Not enforced: CS1591 (public member without a comment),
+      CS1573 (only some <param> tags present), CS0419 (cref to an overloaded method group).
+    -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573;CS0419</NoWarn>
   </PropertyGroup>
 
-  <!-- README, LICENSE and docs/ live in the repository root, one level above this project. -->
+  <!-- README, LICENSE live in the repository root, one level above this project. -->
   <ItemGroup>
     <None Include="..\README.md" Pack="true" PackagePath="\" />
     <None Include="..\LICENSE" Pack="true" PackagePath="\" />
-    <None Include="..\docs\**\*.md" Pack="true" PackagePath="docs\" />
   </ItemGroup>
 
 </Project>

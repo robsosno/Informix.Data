@@ -22,7 +22,7 @@ public sealed class IfxDataAdapter : DbDataAdapter, ICloneable
 
     /// <summary>
     /// Copies the DataAdapter-level settings (table mappings, missing-mapping/-schema
-    /// actions, <see cref="DbDataAdapter.AcceptChangesDuringFill"/>, ...) via the base
+    /// actions, <see cref="System.Data.Common.DataAdapter.AcceptChangesDuringFill"/>, ...) via the base
     /// <see cref="DbDataAdapter"/> copy constructor, then re-points the four command
     /// properties at the SAME <see cref="IfxCommand"/> instances as <paramref name="from"/>.
     /// </summary>

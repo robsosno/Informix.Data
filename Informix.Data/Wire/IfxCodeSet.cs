@@ -17,7 +17,7 @@ namespace Informix.Data.Wire;
 ///
 /// <para>.NET Core ships only ASCII/UTF-8/UTF-16/Latin-1 in the box; the legacy
 /// single-byte and DBCS code pages live in <c>System.Text.Encoding.CodePages</c>,
-/// which the <see cref="ModuleInitializerAttribute">module initializer</see> registers
+/// which the <see cref="System.Runtime.CompilerServices.ModuleInitializerAttribute">module initializer</see> registers
 /// once so <see cref="Encoding.GetEncoding(int)"/> can resolve them.</para>
 /// </summary>
 internal static class IfxCodeSet

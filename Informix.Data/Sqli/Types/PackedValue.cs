@@ -703,7 +703,7 @@ internal sealed class PackedValue
     }
 
     /// <summary>
-    /// Encodes a year-month interval</c>).
+    /// Encodes a year-month interval.
     /// </summary>
     public static PackedValue FromInterval(IfxIntervalYearMonth interval)
     {

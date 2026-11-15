@@ -123,14 +123,6 @@ internal readonly struct SqliBindValue
         new() { Type = type, Data = null, ExtendedOwner = owner, ExtendedTypeName = extendedTypeName };
 
     /// <summary>
-    /// Encodes a CLR value. Strings travel as CHAR (the server casts to the target type),
-    /// whole numbers as their exact-width types, DECIMAL/DATETIME as packed
-    /// values. A <paramref name="hint"/> of <see cref="SqliTypeCode.Text"/> forces a
-    /// string to bind as a TEXT large object; <c>byte[]</c> binds as BYTE.
-    /// <paramref name="longRowId"/> selects the wider Informix 15 blob-descriptor
-    /// layout and must match what the session negotiated.
-    /// </summary>
-    /// <summary>
     /// Binds a <see cref="DateTime"/> or <see cref="TimeOnly"/> as a DATETIME with exactly
     /// <paramref name="qualifier"/> (the target column's), dropping the fields it lacks. A
     /// <see cref="TimeOnly"/> is used only for a time-only qualifier (HOUR or finer start):
@@ -157,6 +149,14 @@ internal readonly struct SqliBindValue
         return true;
     }
 
+    /// <summary>
+    /// Encodes a CLR value. Strings travel as CHAR (the server casts to the target type),
+    /// whole numbers as their exact-width types, DECIMAL/DATETIME as packed
+    /// values. A <paramref name="hint"/> of <see cref="SqliTypeCode.Text"/> forces a
+    /// string to bind as a TEXT large object; <c>byte[]</c> binds as BYTE.
+    /// <paramref name="longRowId"/> selects the wider Informix 15 blob-descriptor
+    /// layout and must match what the session negotiated.
+    /// </summary>
     public static SqliBindValue From(
         object? value, Encoding encoding, SqliTypeCode hint = SqliTypeCode.Unknown, bool longRowId = false)
     {

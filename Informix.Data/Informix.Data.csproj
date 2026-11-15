@@ -25,11 +25,27 @@
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <!-- NuGet packaging (`dotnet pack`). Bump <Version> manually per release. -->
+  <!--
+    Versioning: MinVer derives Version/PackageVersion from the latest git tag
+    (vMAJOR.MINOR.PATCH). Commits after a tag build as the next patch with an
+    "-alpha.0.N" pre-release suffix. AssemblyVersion is pinned to MAJOR.0.0.0.
+    Release = push a tag (see .github/workflows/release.yml).
+  -->
+  <ItemGroup>
+    <PackageReference Include="MinVer" Version="6.0.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerMinimumMajorMinor>1.0</MinVerMinimumMajorMinor>
+  </PropertyGroup>
+
+  <!-- NuGet packaging (`dotnet pack`). -->
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>Informix.Data</PackageId>
-    <Version>1.0.0</Version>
+    <RepositoryUrl>https://github.com/robsosno/Informix.Data</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
     <Authors>Informix.Data contributors</Authors>
     <PackageDescription>Managed ADO.NET provider for IBM Informix (SQLI protocol). No CSDK, no ODBC DSN, no IBM DB2 client required.</PackageDescription>
     <PackageTags>informix;ado.net;database;driver;sqli</PackageTags>

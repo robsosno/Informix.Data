@@ -73,3 +73,7 @@ build/
 # ApiShapeGuardTests writes this only when the public surface changed; the approved
 # snapshot next to it is the tracked one.
 PublicApi.received.txt
+
+# Claude Code project skill (matched by [Rr]elease/ above)
+!.claude/skills/release/
+.claude/settings.local.json

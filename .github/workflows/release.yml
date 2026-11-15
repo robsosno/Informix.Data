@@ -1,0 +1,68 @@
+# Publishes Informix.Data to GitHub Packages when a version tag (vMAJOR.MINOR.PATCH) is pushed.
+# The package version comes from the tag via MinVer (see Informix.Data/Informix.Data.csproj).
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+permissions:
+  contents: write   # create the GitHub Release
+  packages: write   # push to GitHub Packages
+
+jobs:
+  release:
+    # Windows: the test suite is verified on Windows (code pages, culture).
+    runs-on: windows-latest
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # MinVer needs full history and tags
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore Informix.Data.slnx
+
+      - name: Test
+        run: dotnet test Informix.Data.Tests -c Release --no-restore
+
+      - name: Pack
+        run: dotnet pack Informix.Data/Informix.Data.csproj -c Release --no-restore
+
+      - name: Check package version matches tag
+        shell: pwsh
+        run: |
+          $expected = "${{ github.ref_name }}".TrimStart('v')
+          $pkg = "Informix.Data/nupkg/Informix.Data.$expected.nupkg"
+          if (-not (Test-Path $pkg)) {
+            Get-ChildItem Informix.Data/nupkg
+            throw "Expected $pkg - MinVer version does not match tag ${{ github.ref_name }}"
+          }
+
+      - name: Push to GitHub Packages
+        shell: pwsh
+        run: >
+          dotnet nuget push "Informix.Data/nupkg/*.nupkg"
+          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+          --api-key "${{ secrets.GITHUB_TOKEN }}"
+          --skip-duplicate
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ghArgs = @($tag) + (Get-ChildItem Informix.Data/nupkg/* | ForEach-Object FullName) + @('--title', $tag, '--generate-notes')
+          if ($tag -like '*-*') { $ghArgs += '--prerelease' }
+          gh release create @ghArgs

@@ -309,11 +309,20 @@ internal static class SqliValueDecoder
                 // after it.
                 return 6;
 
+            case SqliTypeCode.UdtFixed:
+                // [flag:1][length:int32][data:declaredLength] — a fixed-length opaque UDT
+                // (e.g. a BLOB/CLOB member's 72-byte locator) always occupies its whole
+                // declared slot. Like BOOLEAN above, a NULL one has length word 0 but still
+                // carries the slot: live-verified against IDS 15.0.1.0 on the stores demo's
+                // catalog.advert ROW(picture BLOB, caption LVARCHAR) — for a NULL picture the
+                // bytes are 01 00 00 00 00 + 72 bytes, and the row's own offset table puts
+                // caption at 77. Sizing it 5 + 0 read caption 72 bytes early (-79716).
+                return 5 + Math.Max(declaredLength, Math.Max(0, IfxWireConverter.ReadInt32(span.Slice(1, 4))));
+
             case SqliTypeCode.LVarChar:
             case SqliTypeCode.Json:
             case SqliTypeCode.Bson:
             case SqliTypeCode.UdtVar:
-            case SqliTypeCode.UdtFixed:
                 // [flag:1][length:int32][data] — genuinely length-driven, unlike BOOLEAN
                 // above (port of IfxComplexInput.readUDT, which takes its size from the
                 // length word). Math.Max(0, ...) guards a corrupt negative length.

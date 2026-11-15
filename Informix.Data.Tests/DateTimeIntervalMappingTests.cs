@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Data;
 using Informix.Data.Sqli;
 using Informix.Data.Types;
 using Informix.Data.Wire;
@@ -162,6 +163,96 @@ public class DateTimeIntervalMappingTests
             // GetDateTime must agree.
             Assert.Equal(v, reader.GetDateTime(0));
         }
+    }
+
+    // ---- E2: the DATETIME qualifier travels through the schema table into the bind ----
+    //
+    // Live-verified against IDS 15.0.1.0: the server compares DATETIMEs of different qualifiers
+    // by EXTENDing the narrower one with the CURRENT value of its missing leading fields, so a
+    // DATETIME MINUTE TO SECOND column (EXTEND -> <current hour>:34:56) never equals the
+    // TimeOnly 00:34:56 read from it when that binds as HOUR TO SECOND, and
+    // IfxDataAdapter.Update reported a concurrency violation for every such row.
+
+    private static DataRow SchemaRow(SqliTypeCode type, short qualifier, byte[] row)
+    {
+        using var reader = OpenOneColumnReader(type, qualifier, row, out var cn);
+        using (cn)
+            return reader.GetSchemaTable().Rows[0];
+    }
+
+    private static SqliBindValue Encode(IfxParameter p)
+    {
+        using var cn = SqliStatementKit.OpenConnection([], out _);
+        return IfxParameterBinder.EncodeBind(cn.SqliSession!, p);
+    }
+
+    private static void ApplyParameterInfo(IfxParameter p, DataRow schemaRow, bool whereClause)
+    {
+        var apply = typeof(IfxCommandBuilder).GetMethod("ApplyParameterInfo",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        apply.Invoke(new IfxCommandBuilder(), [p, schemaRow, StatementType.Update, whereClause]);
+    }
+
+    [Fact]
+    public void Schema_table_reports_the_datetime_qualifier_in_its_last_two_columns()
+    {
+        var row = SchemaRow(SqliTypeCode.DateTime, M2S, Packed(PackedValue.FromDateTime(new DateTime(2000, 1, 1, 0, 34, 56), M2S)));
+        var columns = row.Table.Columns;
+        Assert.Equal("StartTimeUnit", columns[columns.Count - 2].ColumnName);
+        Assert.Equal("EndTimeUnit", columns[columns.Count - 1].ColumnName);
+        Assert.Equal(IfxTimeUnit.Minute, row["StartTimeUnit"]);
+        Assert.Equal(IfxTimeUnit.Second, row["EndTimeUnit"]);
+
+        var date = SchemaRow(SqliTypeCode.Date, 4, IfxWireConverter.ToDate(new DateTime(2026, 7, 14)));
+        Assert.Equal(DBNull.Value, date["StartTimeUnit"]);
+        Assert.Equal(DBNull.Value, date["EndTimeUnit"]);
+    }
+
+    [Fact]
+    public void Command_builder_binds_a_TimeOnly_with_the_minute_to_second_column_qualifier()
+    {
+        var row = SchemaRow(SqliTypeCode.DateTime, M2S, Packed(PackedValue.FromDateTime(new DateTime(2000, 1, 1, 0, 34, 56), M2S)));
+        var p = new IfxParameter { Value = new TimeOnly(0, 34, 56) };
+        ApplyParameterInfo(p, row, whereClause: true);
+
+        var bind = Encode(p);
+
+        Assert.Equal(SqliTypeCode.DateTime, bind.Type);
+        Assert.Equal(M2S, bind.Precision);
+        Assert.Equal(PackedValue.FromDateTime(new DateTime(2000, 1, 1, 0, 34, 56), M2S).ToWireBytes(), bind.Data);
+        // A clone (DbDataAdapter copies parameters) keeps it.
+        Assert.Equal(M2S, Encode(p.Clone()).Precision);
+    }
+
+    [Fact]
+    public void Without_a_column_qualifier_a_TimeOnly_still_binds_as_hour_to_second()
+    {
+        var bind = Encode(new IfxParameter { Value = new TimeOnly(0, 34, 56) });
+        Assert.Equal(H2S, bind.Precision);
+    }
+
+    [Fact]
+    public void Command_builder_binds_a_midnight_DateTime_as_the_columns_datetime_not_as_a_date()
+    {
+        var value = new DateTime(2026, 7, 14);
+        var row = SchemaRow(SqliTypeCode.DateTime, Y2S, Packed(PackedValue.FromDateTime(value, Y2S)));
+        var p = new IfxParameter { Value = value };
+        ApplyParameterInfo(p, row, whereClause: true);
+
+        var bind = Encode(p);
+
+        Assert.Equal(SqliTypeCode.DateTime, bind.Type);
+        Assert.Equal(Y2S, bind.Precision);
+    }
+
+    [Fact]
+    public void A_column_qualifier_with_a_date_part_leaves_a_TimeOnly_on_its_usual_bind()
+    {
+        var row = SchemaRow(SqliTypeCode.DateTime, Y2S, Packed(PackedValue.FromDateTime(new DateTime(2026, 7, 14), Y2S)));
+        var p = new IfxParameter { Value = new TimeOnly(12, 0, 0) };
+        ApplyParameterInfo(p, row, whereClause: false);
+
+        Assert.Equal(H2S, Encode(p).Precision);
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using System.Data;
 using System.Data.Common;
+using Informix.Data.Types;
 
 namespace Informix.Data;
 
@@ -41,8 +42,21 @@ public sealed class IfxCommandBuilder : DbCommandBuilder
 
     protected override void ApplyParameterInfo(DbParameter parameter, DataRow row, StatementType statementType, bool whereClause)
     {
-        // Nothing extra to stamp: IfxParameter infers the wire type from the value,
-        // and Informix ignores the sent precision for fixed-width types.
+        // IfxParameter infers the wire type from the value, and Informix ignores the sent
+        // precision for fixed-width types. The one thing the value cannot carry is a DATETIME
+        // column's qualifier: a TimeOnly read from DATETIME MINUTE TO SECOND would bind as
+        // HOUR TO SECOND, which the server extends with the current hour and never matches in
+        // the optimistic-concurrency WHERE (and a DateTime at midnight would bind as a DATE).
+        if (parameter is IfxParameter p
+            && row.Table.Columns.Contains(IfxDataReader.StartTimeUnitColumn)
+            && row.Table.Columns.Contains(IfxDataReader.EndTimeUnitColumn)
+            && row[SchemaTableColumn.ProviderType] is int providerType
+            && (IfxType)providerType == IfxType.DateTime
+            && row[IfxDataReader.StartTimeUnitColumn] is IfxTimeUnit start
+            && row[IfxDataReader.EndTimeUnitColumn] is IfxTimeUnit end)
+        {
+            p.ColumnDateTimeQualifier = IfxQualifier.ForDateTime(start, end);
+        }
     }
 
     protected override void SetRowUpdatingHandler(DbDataAdapter adapter)

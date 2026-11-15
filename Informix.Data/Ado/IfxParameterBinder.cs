@@ -154,6 +154,10 @@ internal static class IfxParameterBinder
             return EncodeJsonOrBsonBind(p);
         if (p.IfxType is IfxType.BinaryVar or IfxType.Binary18)
             return EncodeBinaryBind(p);
+        if (p.ColumnDateTimeQualifier is short qualifier
+            && p.IfxType is default(IfxType) or IfxType.DateTime
+            && SqliBindValue.TryDateTimeWithQualifier(p.Value, qualifier, out SqliBindValue qualified))
+            return qualified;
         return SqliBindValue.From(
             p.Value, session.DbEncoding, IfxTypeMap.ToWire(p.IfxType), session.Capabilities.IsLongRowId);
     }

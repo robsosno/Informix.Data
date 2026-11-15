@@ -130,6 +130,33 @@ internal readonly struct SqliBindValue
     /// <paramref name="longRowId"/> selects the wider Informix 15 blob-descriptor
     /// layout and must match what the session negotiated.
     /// </summary>
+    /// <summary>
+    /// Binds a <see cref="DateTime"/> or <see cref="TimeOnly"/> as a DATETIME with exactly
+    /// <paramref name="qualifier"/> (the target column's), dropping the fields it lacks. A
+    /// <see cref="TimeOnly"/> is used only for a time-only qualifier (HOUR or finer start):
+    /// it has no date to supply. Returns false for any other value, which binds as usual.
+    /// </summary>
+    internal static bool TryDateTimeWithQualifier(object? value, short qualifier, out SqliBindValue bind)
+    {
+        var start = (IfxTimeUnit)IfxQualifier.GetStartCode(qualifier);
+        var end = (IfxTimeUnit)IfxQualifier.GetEndCode(qualifier);
+        DateTime? dt = value switch
+        {
+            DateTime d when start <= IfxTimeUnit.Second && end >= start => d,
+            TimeOnly t when start is >= IfxTimeUnit.Hour and <= IfxTimeUnit.Second && end >= start
+                => DateTime.MinValue.Add(t.ToTimeSpan()),
+            _ => null,
+        };
+        if (dt is not { } v)
+        {
+            bind = default;
+            return false;
+        }
+        var packed = PackedValue.FromDateTime(v, qualifier);
+        bind = new SqliBindValue { Type = SqliTypeCode.DateTime, Data = packed.ToWireBytes(), Precision = packed.Qualifier };
+        return true;
+    }
+
     public static SqliBindValue From(
         object? value, Encoding encoding, SqliTypeCode hint = SqliTypeCode.Unknown, bool longRowId = false)
     {

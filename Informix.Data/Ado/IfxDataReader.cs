@@ -536,10 +536,26 @@ public sealed class IfxDataReader : DbDataReader, IDbColumnSchemaGenerator
     /// </summary>
     public ReadOnlyCollection<DbColumn> GetColumnSchema() => IfxDbColumn.BuildSchema(Open().Columns);
 
+    internal const string StartTimeUnitColumn = "StartTimeUnit";
+    internal const string EndTimeUnitColumn = "EndTimeUnit";
+
     /// <summary>
     /// Builds the ADO.NET schema table from the described columns. The rows are
     /// projected from <see cref="GetColumnSchema"/> so the two views never drift.
     /// </summary>
+    /// <remarks>
+    /// After the standard columns, the Informix extended-type detail
+    /// (<c>ExtendedTypeName</c>, <c>ExtendedOwner</c>, <c>IsDistinct</c>, <c>IsOpaqueComplex</c>)
+    /// and, for a one-table SELECT, the base-table columns <see cref="DbCommandBuilder"/> reads,
+    /// the last two columns are <c>StartTimeUnit</c> and <c>EndTimeUnit</c>: the first and last
+    /// field of a DATETIME or INTERVAL column's qualifier (<see cref="IfxDbColumn.StartTimeUnit"/>,
+    /// <see cref="IfxDbColumn.EndTimeUnit"/>), each a boxed <see cref="IfxTimeUnit"/>, and
+    /// <see cref="DBNull.Value"/> for any other type. The <see cref="DataColumn.DataType"/> is
+    /// <see cref="object"/>, since a <see cref="DataColumn"/> of an enum type would store the
+    /// underlying <see cref="int"/>. They tell a <c>DATETIME MINUTE TO SECOND</c> from a
+    /// <c>DATETIME HOUR TO SECOND</c> (both read as <see cref="TimeOnly"/>), and
+    /// <see cref="IfxCommandBuilder"/> uses them to bind such values with the column's own qualifier.
+    /// </remarks>
     public override DataTable GetSchemaTable()
     {
         Open();
@@ -573,6 +589,10 @@ public sealed class IfxDataReader : DbDataReader, IDbColumnSchemaGenerator
             table.Columns.Add(SchemaTableColumn.IsExpression, typeof(bool));
             table.Columns.Add(SchemaTableColumn.IsAliased, typeof(bool));
         }
+        // Last, so every column above keeps its position (and the same layout as the
+        // .NET Framework port). Declared as object: see the remarks.
+        table.Columns.Add(StartTimeUnitColumn, typeof(object));
+        table.Columns.Add(EndTimeUnitColumn, typeof(object));
 
         foreach (var dbColumn in GetColumnSchema())
         {
@@ -609,6 +629,8 @@ public sealed class IfxDataReader : DbDataReader, IDbColumnSchemaGenerator
                 row[SchemaTableColumn.IsExpression] = expression;
                 row[SchemaTableColumn.IsAliased] = false;
             }
+            row[StartTimeUnitColumn] = (object?)col.StartTimeUnit ?? DBNull.Value;
+            row[EndTimeUnitColumn] = (object?)col.EndTimeUnit ?? DBNull.Value;
             table.Rows.Add(row);
         }
         return table;

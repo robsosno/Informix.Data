@@ -95,6 +95,14 @@ public sealed class IfxParameter : DbParameter, ICloneable
         IfxType = default;
     }
 
+    // The DATETIME qualifier of the column this parameter is compared with or assigned to, when
+    // known (IfxCommandBuilder stamps it from the schema table). A TimeOnly/DateTime value then
+    // binds with exactly that qualifier instead of the one inferred from the CLR value: the server
+    // compares DATETIMEs of different qualifiers by EXTENDing the narrower one with the CURRENT
+    // value of its missing leading fields, so a MINUTE TO SECOND column never equals an HOUR TO
+    // SECOND parameter outside 00:00-00:59 (live-verified against IDS 15.0.1.0).
+    internal short? ColumnDateTimeQualifier { get; set; }
+
     /// <summary>Resets <see cref="IfxType"/> to its unset default (so the bind type is
     /// inferred from <see cref="Value"/>).</summary>
     public void ResetIfxType() => IfxType = default;
@@ -106,6 +114,7 @@ public sealed class IfxParameter : DbParameter, ICloneable
         Value = _value,
         IfxType = IfxType,
         SmartLobColumn = SmartLobColumn,
+        ColumnDateTimeQualifier = ColumnDateTimeQualifier,
         DbType = DbType,
         Direction = Direction,
         IsNullable = IsNullable,

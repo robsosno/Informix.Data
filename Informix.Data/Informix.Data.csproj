@@ -64,9 +64,13 @@
     <NoWarn>$(NoWarn);CS1591;CS1573;CS0419</NoWarn>
   </PropertyGroup>
 
-  <!-- README, LICENSE live in the repository root, one level above this project. -->
+  <!--
+    The package README is PACKAGE.md (short, absolute links only — nuget.org does not
+    resolve relative links), packed as README.md. The repository-root README.md is the
+    full GitHub page. LICENSE lives in the repository root, one level above this project.
+  -->
   <ItemGroup>
-    <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <None Update="PACKAGE.md" Pack="true" PackagePath="\README.md" />
     <None Include="..\LICENSE" Pack="true" PackagePath="\" />
   </ItemGroup>
 

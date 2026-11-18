@@ -1,5 +1,13 @@
-# Publishes Informix.Data to GitHub Packages when a version tag (vMAJOR.MINOR.PATCH) is pushed.
-# The package version comes from the tag via MinVer (see Informix.Data/Informix.Data.csproj).
+# Publishes Informix.Data to GitHub Packages and nuget.org when a version tag (vMAJOR.MINOR.PATCH)
+# is pushed. The package version comes from the tag via MinVer (see Informix.Data/Informix.Data.csproj).
+#
+# nuget.org uses Trusted Publishing (GitHub OIDC, no stored API key). One-time setup:
+#   - nuget.org > your profile > Trusted Publishing > add a policy:
+#     Repository Owner = robsosno, Repository = Informix.Data, Workflow File = release.yml
+#     (file name only), Environment = empty. Make sure its scope allows pushing new packages.
+#   - repository secret NUGET_USER = your nuget.org profile name (not the e-mail address).
+# A new policy is only temporarily active for 7 days until the first successful publish locks it
+# to this repository; if it lapses, restart the window on nuget.org.
 name: Release
 
 on:
@@ -11,6 +19,7 @@ on:
 permissions:
   contents: write   # create the GitHub Release
   packages: write   # push to GitHub Packages
+  id-token: write   # OIDC token for nuget.org Trusted Publishing
 
 jobs:
   release:
@@ -55,6 +64,22 @@ jobs:
           dotnet nuget push "Informix.Data/nupkg/*.nupkg"
           --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
           --api-key "${{ secrets.GITHUB_TOKEN }}"
+          --skip-duplicate
+
+      # The short-lived API key from the login step is valid for one hour: keep it right before the push.
+      - name: NuGet login (Trusted Publishing)
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      # Pushes the matching .snupkg to the nuget.org symbol server as well.
+      - name: Push to nuget.org
+        shell: pwsh
+        run: >
+          dotnet nuget push "Informix.Data/nupkg/*.nupkg"
+          --source "https://api.nuget.org/v3/index.json"
+          --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
           --skip-duplicate
 
       - name: Create GitHub Release

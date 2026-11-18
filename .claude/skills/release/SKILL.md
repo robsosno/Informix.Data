@@ -1,6 +1,6 @@
 ---
 name: release
-description: Wydaje nową wersję Informix.Data i publikuje ją na GitHubie (tag vX.Y.Z → workflow Release → GitHub Packages + GitHub Release). Użyj, gdy użytkownik mówi "wydaj nową wersję", "zrób release", "opublikuj wersję", "wydaj major/minor". Argument: major | minor | patch (domyślnie minor).
+description: Wydaje nową wersję Informix.Data i publikuje ją na GitHubie (tag vX.Y.Z → workflow Release → GitHub Packages + nuget.org + GitHub Release). Użyj, gdy użytkownik mówi "wydaj nową wersję", "zrób release", "opublikuj wersję", "wydaj major/minor". Argument: major | minor | patch (domyślnie minor).
 argument-hint: "[minor|major|patch]"
 ---
 
@@ -8,7 +8,10 @@ argument-hint: "[minor|major|patch]"
 
 Wersja paczki pochodzi wyłącznie z tagu git (MinVer, prefiks `v`). Wydanie = utworzenie
 annotowanego tagu `vX.Y.Z` na aktualnym `main` i wypchnięcie go. Resztę (testy, pack,
-push do GitHub Packages, GitHub Release) robi `.github/workflows/release.yml`.
+push do GitHub Packages i nuget.org, GitHub Release) robi `.github/workflows/release.yml`.
+
+Wersja wypchnięta na nuget.org jest publiczna i nieodwracalna (można ją tylko ukryć — unlist),
+dlatego warunki z punktu 2 sprawdzaj bez wyjątków.
 
 Wywołanie skilla przez użytkownika jest zgodą na utworzenie i wypchnięcie tagu — nie pytaj
 ponownie, chyba że któryś warunek poniżej nie jest spełniony.
@@ -92,4 +95,9 @@ W przeciwnym razie podaj użytkownikowi linki:
 Tag już jest na GitHubie, ale paczka mogła nie zostać opublikowana. Nie usuwaj tagu
 samodzielnie — opisz błąd i zaproponuj: poprawkę + nowy tag patch, albo (za zgodą
 użytkownika) usunięcie tagu (`git push origin :refs/tags/vX.Y.Z` i `git tag -d vX.Y.Z`)
-i ponowne wydanie. Wersji już opublikowanej w GitHub Packages nie da się nadpisać.
+i ponowne wydanie. Wersji już opublikowanej w GitHub Packages ani na nuget.org nie da się
+nadpisać — jeśli paczka trafiła na nuget.org, jedyną drogą jest nowy tag patch.
+
+Ponowne uruchomienie workflow (Re-run) jest bezpieczne: oba pushe mają `--skip-duplicate`.
+Błąd w kroku „NuGet login” zwykle oznacza brak sekretu `NUGET_USER` albo nieaktywną politykę
+Trusted Publishing na nuget.org (nowa polityka jest aktywna tylko 7 dni do pierwszej publikacji).
